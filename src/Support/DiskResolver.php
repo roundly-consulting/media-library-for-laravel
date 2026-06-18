@@ -52,6 +52,23 @@ final class DiskResolver
         return $disk;
     }
 
+    /**
+     * Per-variant disk — first match wins:
+     *   1. the variant's own `->storeOnDisk()`
+     *   2. the disk persisted on the media as `variants_disk`
+     *   3. the media's own original disk
+     */
+    public function resolveVariantDisk(?string $variantOverride, ?string $mediaVariantsDisk, string $originalDisk): string
+    {
+        $disk = $variantOverride
+            ?? $mediaVariantsDisk
+            ?? $originalDisk;
+
+        $this->ensureDiskExists($disk);
+
+        return $disk;
+    }
+
     public function ensureDiskExists(string $disk): void
     {
         if (! is_array(config('filesystems.disks')) || ! array_key_exists($disk, config('filesystems.disks'))) {
