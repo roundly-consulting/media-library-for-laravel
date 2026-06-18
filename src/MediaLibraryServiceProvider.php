@@ -35,6 +35,10 @@ final class MediaLibraryServiceProvider extends ServiceProvider
     {
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
+        if (config('media.stream.enabled') === true) {
+            $this->loadRoutesFrom(__DIR__.'/../routes/media.php');
+        }
+
         $this->registerObserver();
 
         if ($this->app->runningInConsole()) {
