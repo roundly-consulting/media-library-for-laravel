@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
+use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
 
 it('configures storage and visibility fluently', function (): void {
     $bucket = (new MediaBucket('avatar'))
@@ -57,4 +58,24 @@ it('stores fallback url and path', function (): void {
 
 it('defaults single file to false', function (): void {
     expect((new MediaBucket('gallery'))->isSingleFile())->toBeFalse();
+});
+
+it('reports no variants by default', function (): void {
+    $bucket = new MediaBucket('gallery');
+
+    expect($bucket->hasVariants())->toBeFalse()
+        ->and($bucket->variants()->isEmpty())->toBeTrue();
+});
+
+it('registers and memoizes variants', function (): void {
+    $bucket = (new MediaBucket('photos'))->registerVariants(function (VariantRegistrar $v): void {
+        $v->add('thumb')->width(120)->format('webp');
+        $v->add('display')->width(800);
+    });
+
+    expect($bucket->hasVariants())->toBeTrue()
+        ->and($bucket->variants()->names())->toBe(['thumb', 'display']);
+
+    // Calling again returns the same memoized collection.
+    expect($bucket->variants())->toBe($bucket->variants());
 });
