@@ -7,10 +7,22 @@ or store **global** media with no owning model — all persisted in a single pol
 Built with only official Laravel and Symfony dependencies. No third-party media or image
 vendors.
 
-> This package is under active development. The foundation below (storage core: model media
-> buckets, global media, and multi-disk support) is available now. Image variants, signed
-> private URLs and streaming, move/copy, content-addressable dedup, LQIP placeholders,
-> responsive `srcset`, and draft media are planned in upcoming phases.
+What you get:
+
+- **Model media buckets & global media** — attach files to named buckets on any model, or store
+  global media with no owner, all in one polymorphic `media` table.
+- **Multi-disk** — any Laravel disk, a configurable default, and separate disks for originals and
+  variants (e.g. originals on cold storage, variants on hot).
+- **Image variants** — native, image-only derivatives via `ext-imagick` (with a `ext-gd`
+  fallback); sync by default, queue opt-in.
+- **Private URLs, streaming & downloads** — one `temporaryUrl()` API that presigns natively or
+  falls back to a signed streaming route.
+- **Deduplication & integrity** — content-addressable storage with refcount-guarded delete/move
+  and checksum verification.
+- **Modern image DX** — ThumbHash + Blurhash LQIP placeholders and responsive `srcset` helpers.
+- **Upload ergonomics** — draft media, bucket-derived validation rules, replace-in-place, and
+  attach-existing-by-reference.
+- **CDN-ready** — a pluggable URL generator that rewrites public URLs onto a CDN with cache-busting.
 
 ## Requirements
 
@@ -38,14 +50,127 @@ Optionally publish the config file:
 php artisan vendor:publish --tag="media-config"
 ```
 
+The only publish tags the package exposes are `media-migrations` and `media-config`.
+
+## Configuration
+
+The package works with **zero** host configuration — every key has an env-backed default. Publish
+`config/media.php` only to override. The full file:
+
+```php
+return [
+    'disk' => env('MEDIA_DISK', 'public'),
+    'variants_disk' => env('MEDIA_VARIANTS_DISK'),
+
+    'media_model' => RoundlyConsulting\MediaLibrary\Models\Media::class,
+    'table_name' => 'media',
+
+    'queue_variants_by_default' => false,
+    'queue_connection' => env('MEDIA_QUEUE_CONNECTION'),
+    'queue_name' => env('MEDIA_QUEUE'),
+
+    'image_driver' => env('MEDIA_IMAGE_DRIVER', 'imagick'),
+    'variant' => [
+        'quality' => 75,
+        'background' => '#ffffff',
+    ],
+
+    'url_fallback_to_original' => false,
+    'temporary_url_default_lifetime' => 5,
+
+    'stream' => [
+        'enabled' => true,
+        'route_prefix' => 'media',
+        'middleware' => ['web'],
+    ],
+
+    'path_generator' => RoundlyConsulting\MediaLibrary\Support\DefaultPathGenerator::class,
+    'file_namer' => RoundlyConsulting\MediaLibrary\Support\DefaultFileNamer::class,
+
+    'default_visibility' => 'public',
+    'max_file_size' => 1024 * 1024 * 256,
+
+    'remote' => [
+        'headers' => [],
+        'timeout' => 30,
+    ],
+
+    'deduplicate' => true,
+    'checksum_algorithm' => 'sha256',
+    'verify_checksum_on_read' => false,
+
+    'placeholders' => [
+        'thumbhash' => true,
+        'blurhash' => true,
+    ],
+
+    'responsive' => [
+        'widths' => [320, 640, 960, 1280, 1920],
+    ],
+
+    'drafts' => [
+        'ttl' => 1440,
+    ],
+
+    'url_generator' => RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator::class,
+    'cdn' => [
+        'enabled' => false,
+        'base_url' => env('MEDIA_CDN_URL'),
+        'cache_bust' => true,
+        'disks' => [],
+    ],
+];
+```
+
+Every key:
+
+| Key | Type | Default | Env | Purpose |
+|---|---|---|---|---|
+| `disk` | `string` | `public` | `MEDIA_DISK` | Default disk for **originals** when a bucket/add doesn't specify one. |
+| `variants_disk` | `?string` | `null` | `MEDIA_VARIANTS_DISK` | Default disk for **variants**. `null` means the same disk as the original. |
+| `media_model` | `class-string<Media>` | `Media::class` | — | Eloquent model used to persist media. Swap for a subclass to extend it. |
+| `table_name` | `string` | `media` | — | Database table the media model uses. |
+| `queue_variants_by_default` | `bool` | `false` | — | Queue all variant generation by default (otherwise sync). |
+| `queue_connection` | `?string` | `null` | `MEDIA_QUEUE_CONNECTION` | Queue connection for `GenerateVariantsJob`. `null` = default connection. |
+| `queue_name` | `?string` | `null` | `MEDIA_QUEUE` | Queue name for `GenerateVariantsJob`. `null` = default queue. |
+| `image_driver` | `string` | `imagick` | `MEDIA_IMAGE_DRIVER` | `imagick` or `gd`. Auto-falls back to `gd` when Imagick is absent. |
+| `variant.quality` | `int` | `75` | — | Default JPEG/WebP quality (1–100) for generated variants. |
+| `variant.background` | `string` | `#ffffff` | — | Flatten color when a transparent image is converted to JPEG. |
+| `url_fallback_to_original` | `bool` | `false` | — | When `getUrl()` is asked for an un-generated variant: throw (`false`) or return the original's URL (`true`). |
+| `temporary_url_default_lifetime` | `int` | `5` | — | Default lifetime (minutes) for temporary/signed URLs when no expiry is passed. |
+| `stream.enabled` | `bool` | `true` | — | Register the signed streaming route. |
+| `stream.route_prefix` | `string` | `media` | — | URI prefix for the streaming route. |
+| `stream.middleware` | `list<string>` | `['web']` | — | Middleware stack for the streaming route. Laravel's `signed` is always appended. |
+| `path_generator` | `class-string<PathGenerator>` | `DefaultPathGenerator::class` | — | Directory layout for a media's files. |
+| `file_namer` | `class-string<FileNamer>` | `DefaultFileNamer::class` | — | Original and variant file naming. |
+| `default_visibility` | `string` | `public` | — | `public` or `private` for new media when a bucket/add doesn't set it. |
+| `max_file_size` | `?int` | `268435456` | — | Package-level max upload size in bytes. `null` = no limit. |
+| `remote.headers` | `array<string,string>` | `[]` | — | Extra HTTP headers for `addMediaFromUrl()`. |
+| `remote.timeout` | `int` | `30` | — | HTTP timeout (seconds) for `addMediaFromUrl()`. |
+| `deduplicate` | `bool` | `true` | — | Reuse storage for identical bytes on the same `(disk, visibility)`. |
+| `checksum_algorithm` | `string` | `sha256` | — | Hash algorithm for the content checksum (dedup + integrity baseline). |
+| `verify_checksum_on_read` | `bool` | `false` | — | Re-hash the original on stream/download; throws `ChecksumMismatch` on drift. |
+| `placeholders.thumbhash` | `bool` | `true` | — | Compute a ThumbHash LQIP on add for images. |
+| `placeholders.blurhash` | `bool` | `true` | — | Compute a Blurhash LQIP on add for images. |
+| `responsive.widths` | `list<int>` | `[320, 640, 960, 1280, 1920]` | — | Default responsive `srcset` ladder, overridable per bucket. |
+| `drafts.ttl` | `int` | `1440` | — | Minutes before an unbound draft is prunable (default 24h). |
+| `url_generator` | `class-string<UrlGenerator>` | `DefaultUrlGenerator::class` | — | URL building strategy. Takes precedence over the CDN generator. |
+| `cdn.enabled` | `bool` | `false` | — | Rewrite public URLs onto a CDN host. |
+| `cdn.base_url` | `?string` | `null` | `MEDIA_CDN_URL` | CDN base URL, e.g. `https://cdn.example.com`. |
+| `cdn.cache_bust` | `bool` | `true` | — | Append `?v={updated_at}` to public URLs so replaced media busts caches. |
+| `cdn.disks` | `list<string>` | `[]` | — | Limit CDN rewriting to these disks. `[]` = all public disks. |
+
 ## Quick start
 
-Add the contract and trait to any model, and declare its buckets:
+Add the `HasMedia` contract and the `InteractsWithMedia` trait to any model, and declare its
+buckets in `registerMediaBuckets()`. Buckets can pin originals and variants to different disks
+(e.g. cold originals, hot variants) and declare image variants inline:
 
 ```php
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\MediaLibrary\Concerns\InteractsWithMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
+use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
 
 final class User extends Model implements HasMedia
 {
@@ -54,21 +179,65 @@ final class User extends Model implements HasMedia
     public function registerMediaBuckets(): void
     {
         $this->addMediaBucket('avatar')
-            ->singleFile()
+            ->singleFile()                                   // replaces the previous file on add
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp'])
-            ->useDisk('public');
+            ->useDisk('cold')                                // originals on cold storage
+            ->storingVariantsOnDisk('hot')                   // derivatives on hot storage
+            ->private()                                      // visibility: private -> signed URLs
+            ->useFallbackUrl('https://example.com/avatar.png')
+            ->registerVariants(function (VariantRegistrar $v): void {
+                $v->add('thumb')->fit('crop')->width(120)->height(120)->format('webp');
+                $v->add('display')->width(800)->format('webp')->quality(80)->queued();
+            });
+
+        $this->addMediaBucket('gallery')->useDisk('public'); // simple public bucket
     }
 }
 ```
 
-Attach and read media:
+### Adding media
+
+Every `addMedia*` method returns a `PendingFileAdd` builder; a terminal `toMediaBucket()` writes
+the file and returns the `Media`:
 
 ```php
-$user->addMedia($request->file('avatar'))->toMediaBucket('avatar');
+$user->addMedia($request->file('avatar'))->toMediaBucket('avatar');        // UploadedFile or path
+$user->addMediaFromRequest('avatar')->toMediaBucket('avatar');             // request file by key
+$user->addMultipleMediaFromRequest(['a', 'b']);                            // returns PendingFileAdd[]
+$user->addMediaFromUrl('https://example.com/poster.png')->toMediaBucket('gallery');
+$user->addMediaFromDisk('incoming/doc.pdf', 's3')->toMediaBucket('gallery');
+$user->addMediaFromString($bytes)->usingFileName('note.txt')->toMediaBucket('gallery');
+$user->addMediaFromBase64($base64)->toMediaBucket('gallery');
+$user->addMediaFromStream($resource)->usingFileName('upload.bin')->toMediaBucket('gallery');
+```
 
-$user->getFirstMediaUrl('avatar');   // public URL, or '' when empty
-$user->getMedia('avatar');           // Collection<Media>
-$user->hasMedia('avatar');           // bool
+### The `PendingFileAdd` builder
+
+```php
+$media = $user->addMedia($request->file('avatar'))
+    ->usingName('Profile photo')                 // display name
+    ->usingFileName('avatar.jpg')                // stored filename
+    ->withCustomProperties(['alt' => 'Jane'])    // arbitrary metadata
+    ->withProperty('source', 'signup')           // one property at a time
+    ->storingVariantsOnDisk('hot')               // override the bucket/config variants disk
+    ->withVisibility('private')                  // override the bucket default
+    ->preservingOriginal()                       // copy the source instead of moving it
+    ->onQueue('media')                           // queue any queued variants on this queue
+    ->toMediaBucket('avatar', 'cold');           // terminal: returns Media (optional disk override)
+```
+
+The terminal call validates the file (mime allowlist, size, existence) and throws a typed
+exception — `FileUnacceptableForBucket`, `FileDoesNotExist`, or `DiskDoesNotExist` — on failure.
+
+### Reading media
+
+```php
+$user->getMedia('avatar');                       // Collection<Media>, ordered
+$user->getFirstMedia('avatar');                  // ?Media
+$user->getFirstMediaUrl('avatar');               // public URL, the bucket fallback, or ''
+$user->getFirstMediaUrl('avatar', 'thumb');      // a variant's URL
+$user->hasMedia('avatar');                       // bool
+$user->clearMediaBucket('avatar');               // delete every media in the bucket
 ```
 
 Store global media (no owning model) via the `Media` facade:
@@ -470,11 +639,33 @@ php artisan media:verify "App\Models\User" --ids=1,2,3
 php artisan media:prune-drafts
 ```
 
+## Events
+
+Every lifecycle step dispatches an event under
+`RoundlyConsulting\MediaLibrary\Events` so the host app can react without forking:
+
+| Event | Dispatched when |
+|---|---|
+| `MediaHasBeenAdded` | A new media row is created (including the new row from a copy). |
+| `VariantHasBeenGenerated` | A single image variant finishes generating. |
+| `VariantsHaveBeenGenerated` | All of an add's variants finish generating. |
+| `MediaHasBeenMoved` | Media is moved across disks, models, or buckets. |
+| `MediaHasBeenReplaced` | A media's original is replaced in place. |
+| `DraftMediaHasBeenBound` | A draft media is bound to its owning model. |
+| `MediaHasBeenDeleted` | A media is permanently deleted (force delete / `deleteWithFiles()`). |
+
 ## Testing
 
 ```bash
 composer test
 ```
+
+Other quality scripts: `composer format` (Pint), `composer analyse` (Larastan level 7), and
+`composer test-coverage` (Pest with a 90% line-coverage floor).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for what has changed recently.
 
 ## License
 
