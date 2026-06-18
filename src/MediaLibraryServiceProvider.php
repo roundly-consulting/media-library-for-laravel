@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary;
 
 use Illuminate\Support\ServiceProvider;
+use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
+use RoundlyConsulting\MediaLibrary\Commands\ClearCommand;
+use RoundlyConsulting\MediaLibrary\Commands\RegenerateVariantsCommand;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
@@ -42,6 +45,12 @@ final class MediaLibraryServiceProvider extends ServiceProvider
         $this->registerObserver();
 
         if ($this->app->runningInConsole()) {
+            $this->commands([
+                RegenerateVariantsCommand::class,
+                CleanCommand::class,
+                ClearCommand::class,
+            ]);
+
             $this->publishes([
                 __DIR__.'/../config/media.php' => config_path('media.php'),
             ], 'media-config');
