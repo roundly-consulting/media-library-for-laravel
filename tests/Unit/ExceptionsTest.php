@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\MediaLibrary\Exceptions\DiskDoesNotExist;
+use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
+use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidBase64Data;
@@ -60,4 +62,12 @@ it('builds a temporary-url-not-supported exception', function (): void {
     expect(TemporaryUrlNotSupported::forDisk('cold'))
         ->toBeInstanceOf(MediaLibraryException::class)
         ->and(TemporaryUrlNotSupported::forDisk('cold')->getMessage())->toContain('cold');
+});
+
+it('builds draft media exceptions', function (): void {
+    expect(DraftMediaNotFound::forToken('abc'))
+        ->toBeInstanceOf(MediaLibraryException::class)
+        ->and(DraftMediaNotFound::forToken('abc')->getMessage())->toContain('abc')
+        ->and(DraftMediaExpired::forToken('xyz'))->toBeInstanceOf(MediaLibraryException::class)
+        ->and(DraftMediaExpired::forToken('xyz')->getMessage())->toContain('xyz');
 });
