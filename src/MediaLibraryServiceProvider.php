@@ -8,12 +8,15 @@ use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
 use RoundlyConsulting\MediaLibrary\Commands\ClearCommand;
 use RoundlyConsulting\MediaLibrary\Commands\RegenerateVariantsCommand;
+use RoundlyConsulting\MediaLibrary\Commands\VerifyCommand;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Observers\MediaObserver;
+use RoundlyConsulting\MediaLibrary\Support\CdnUrlGenerator;
+use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 
 final class MediaLibraryServiceProvider extends ServiceProvider
@@ -27,7 +30,7 @@ final class MediaLibraryServiceProvider extends ServiceProvider
 
         $this->bindFromConfig(PathGenerator::class, 'media.path_generator');
         $this->bindFromConfig(FileNamer::class, 'media.file_namer');
-        $this->bindFromConfig(UrlGenerator::class, 'media.url_generator');
+        $this->bindUrlGenerator();
 
         // Resolved lazily: media without variants never needs an image extension, and the
         // Imagick->GD fallback (or VariantDriverUnavailable) is decided at resolution time.
@@ -49,6 +52,7 @@ final class MediaLibraryServiceProvider extends ServiceProvider
                 RegenerateVariantsCommand::class,
                 CleanCommand::class,
                 ClearCommand::class,
+                VerifyCommand::class,
             ]);
 
             $this->publishes([
@@ -71,6 +75,32 @@ final class MediaLibraryServiceProvider extends ServiceProvider
         if (is_string($concrete)) {
             $this->app->bind($abstract, $concrete);
         }
+    }
+
+    /**
+     * Bind the URL generator. A host-set `media.url_generator` always wins (override); otherwise
+     * the CDN-aware generator is used when `media.cdn.enabled`, falling back to the default.
+     */
+    private function bindUrlGenerator(): void
+    {
+        $configured = config('media.url_generator');
+
+        if (is_string($configured) && $configured !== DefaultUrlGenerator::class) {
+            $this->app->bind(UrlGenerator::class, $configured);
+
+            return;
+        }
+
+        if (config('media.cdn.enabled') === true) {
+            $this->app->bind(
+                UrlGenerator::class,
+                static fn ($app): CdnUrlGenerator => new CdnUrlGenerator($app->make(DefaultUrlGenerator::class)),
+            );
+
+            return;
+        }
+
+        $this->app->bind(UrlGenerator::class, DefaultUrlGenerator::class);
     }
 
     private function registerObserver(): void
