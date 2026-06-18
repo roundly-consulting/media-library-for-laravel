@@ -28,7 +28,9 @@ final class GdDriver implements ImageDriver
     public function load(string $path): ImageDriver
     {
         $contents = (string) file_get_contents($path);
-        $image = imagecreatefromstring($contents);
+        // Suppress GD's warning on undecodable data so it surfaces as our typed exception rather
+        // than the host's error handler converting the warning into an ErrorException.
+        $image = @imagecreatefromstring($contents);
 
         if ($image === false) {
             throw InvalidVariant::unknownName('original');

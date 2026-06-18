@@ -447,22 +447,33 @@ class Media extends Model
                 return;
             }
 
-            fseek($stream, $start);
-            $remaining = $length;
+            self::copyRange($stream, $start, $length);
+        }, 206, $headers);
+    }
 
-            while ($remaining > 0 && ! feof($stream)) {
-                $chunk = fread($stream, (int) min(8192, $remaining));
+    /**
+     * Echo `$length` bytes from `$stream` starting at `$start`, then close the stream. Extracted so
+     * the range-copy guards (a short/unreadable stream) are unit-testable without HTTP plumbing.
+     *
+     * @param  resource  $stream
+     */
+    public static function copyRange($stream, int $start, int $length): void
+    {
+        fseek($stream, $start);
+        $remaining = $length;
 
-                if ($chunk === false) {
-                    break;
-                }
+        while ($remaining > 0 && ! feof($stream)) {
+            $chunk = fread($stream, (int) min(8192, $remaining));
 
-                echo $chunk;
-                $remaining -= strlen($chunk);
+            if ($chunk === false) {
+                break;
             }
 
-            fclose($stream);
-        }, 206, $headers);
+            echo $chunk;
+            $remaining -= strlen($chunk);
+        }
+
+        fclose($stream);
     }
 
     /**

@@ -15,19 +15,23 @@ use RoundlyConsulting\MediaLibrary\Exceptions\VariantDriverUnavailable;
  */
 final class ImageDriverFactory
 {
-    public static function make(?string $preferred = null): ImageDriver
+    /**
+     * @param  (callable(string): bool)|null  $hasExtension  Override the extension probe (testing seam).
+     */
+    public static function make(?string $preferred = null, ?callable $hasExtension = null): ImageDriver
     {
+        $hasExtension ??= 'extension_loaded';
         $preferred ??= self::configuredDriver();
 
-        if ($preferred === 'gd' && extension_loaded('gd')) {
+        if ($preferred === 'gd' && $hasExtension('gd')) {
             return new GdDriver;
         }
 
-        if (extension_loaded('imagick')) {
+        if ($hasExtension('imagick')) {
             return new ImagickDriver;
         }
 
-        if (extension_loaded('gd')) {
+        if ($hasExtension('gd')) {
             return new GdDriver;
         }
 
