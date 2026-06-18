@@ -1,0 +1,75 @@
+{
+    "name": "roundly-consulting/media-library-for-laravel",
+    "description": "Native Laravel media library: polymorphic media buckets, multi-disk storage, and global media.",
+    "keywords": [
+        "roundly-consulting",
+        "laravel",
+        "media",
+        "media-library",
+        "storage",
+        "uploads"
+    ],
+    "homepage": "https://github.com/roundly-consulting/media-library-for-laravel",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Andrej Mihaliak",
+            "email": "info@mihaliak.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-fileinfo": "*",
+        "illuminate/contracts": "^12.0|^13.0"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.18",
+        "nunomaduro/collision": "^8.8|^9.0",
+        "orchestra/testbench": "^10.0|^11.0",
+        "pestphp/pest": "^4.0",
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan-deprecation-rules": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0"
+    },
+    "suggest": {
+        "ext-imagick": "Preferred image driver for generating media variants.",
+        "ext-gd": "Fallback image driver for generating media variants when Imagick is unavailable."
+    },
+    "autoload": {
+        "psr-4": {
+            "RoundlyConsulting\\MediaLibrary\\": "src",
+            "RoundlyConsulting\\MediaLibrary\\Database\\Factories\\": "database/factories"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "RoundlyConsulting\\MediaLibrary\\Tests\\": "tests"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": "@php ./vendor/bin/testbench package:discover --ansi",
+        "format": "vendor/bin/pint",
+        "analyse": "vendor/bin/phpstan analyse --no-progress",
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage --min=90"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "phpstan/extension-installer": true
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "RoundlyConsulting\\MediaLibrary\\MediaLibraryServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
