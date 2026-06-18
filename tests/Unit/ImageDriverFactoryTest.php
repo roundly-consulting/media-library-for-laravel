@@ -2,9 +2,16 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\MediaLibrary\Exceptions\VariantDriverUnavailable;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\GdDriver;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImagickDriver;
+
+/** @return callable(string): bool */
+function fakeExtensions(string ...$loaded): callable
+{
+    return static fn (string $name): bool => in_array($name, $loaded, true);
+}
 
 it('uses gd when configured and available', function (): void {
     if (! extension_loaded('gd')) {
@@ -27,18 +34,10 @@ it('uses imagick by default when available', function (): void {
 });
 
 it('falls back from imagick to gd when imagick is absent', function (): void {
-    if (! extension_loaded('gd')) {
-        $this->markTestSkipped('ext-gd not available.');
-    }
-
-    // Simulate imagick being unavailable by preferring it while only gd is loaded.
-    if (extension_loaded('imagick')) {
-        $this->markTestSkipped('imagick is loaded; cannot exercise the absent-imagick fallback here.');
-    }
-
     config()->set('media.image_driver', 'imagick');
 
-    expect(ImageDriverFactory::make())->toBeInstanceOf(GdDriver::class);
+    expect(ImageDriverFactory::make(hasExtension: fakeExtensions('gd')))
+        ->toBeInstanceOf(GdDriver::class);
 });
 
 it('returns the preferred driver explicitly', function (): void {
@@ -48,3 +47,17 @@ it('returns the preferred driver explicitly', function (): void {
 
     expect(ImageDriverFactory::make('gd'))->toBeInstanceOf(GdDriver::class);
 });
+
+it('prefers gd when configured even though imagick is also loaded', function (): void {
+    expect(ImageDriverFactory::make('gd', fakeExtensions('gd', 'imagick')))
+        ->toBeInstanceOf(GdDriver::class);
+});
+
+it('prefers imagick when both extensions are loaded and gd is not requested', function (): void {
+    expect(ImageDriverFactory::make('imagick', fakeExtensions('gd', 'imagick')))
+        ->toBeInstanceOf(ImagickDriver::class);
+});
+
+it('throws when neither image extension is available', function (): void {
+    ImageDriverFactory::make('imagick', fakeExtensions());
+})->throws(VariantDriverUnavailable::class);
