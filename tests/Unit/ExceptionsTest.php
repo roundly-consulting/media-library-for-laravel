@@ -7,7 +7,9 @@ use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidBase64Data;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
+use RoundlyConsulting\MediaLibrary\Exceptions\MediaCannotBeStreamed;
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaLibraryException;
+use RoundlyConsulting\MediaLibrary\Exceptions\TemporaryUrlNotSupported;
 use RoundlyConsulting\MediaLibrary\Exceptions\VariantDriverUnavailable;
 
 it('builds a file-does-not-exist exception', function (): void {
@@ -46,4 +48,16 @@ it('builds a variant-driver-unavailable exception', function (): void {
     expect(VariantDriverUnavailable::noExtension())
         ->toBeInstanceOf(MediaLibraryException::class)
         ->and(VariantDriverUnavailable::noExtension()->getMessage())->toContain('imagick');
+});
+
+it('builds a media-cannot-be-streamed exception', function (): void {
+    expect(MediaCannotBeStreamed::noPublicUrl())
+        ->toBeInstanceOf(MediaLibraryException::class)
+        ->and(MediaCannotBeStreamed::noPublicUrl()->getMessage())->toContain('getTemporaryUrl');
+});
+
+it('builds a temporary-url-not-supported exception', function (): void {
+    expect(TemporaryUrlNotSupported::forDisk('cold'))
+        ->toBeInstanceOf(MediaLibraryException::class)
+        ->and(TemporaryUrlNotSupported::forDisk('cold')->getMessage())->toContain('cold');
 });

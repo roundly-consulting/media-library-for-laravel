@@ -20,6 +20,23 @@ abstract class TestCase extends Orchestra
         Storage::fake('public');
         Storage::fake('cold');
         Storage::fake('hot');
+        Storage::fake('s3');
+
+        // A real (non-faked) local disk. Faked disks always register a temporary-URL callback,
+        // so they cannot exercise the "local disk cannot presign -> signed streaming route"
+        // fallback. This plain local disk throws on temporaryUrl(), like production local disks.
+        Storage::disk('secure')->deleteDirectory('');
+    }
+
+    /**
+     * Make a faked disk behave like a presign-capable driver (S3) by registering a temporary-URL
+     * callback, so the URL resolver's native `temporaryUrl()` path is exercised in tests.
+     */
+    protected function makeDiskPresignCapable(string $disk = 's3'): void
+    {
+        Storage::disk($disk)->buildTemporaryUrlsUsing(
+            fn (string $path, \DateTimeInterface $expiry): string => "https://{$disk}.example.com/{$path}?expires={$expiry->getTimestamp()}"
+        );
     }
 
     /** @return array<int, class-string> */
@@ -31,6 +48,8 @@ abstract class TestCase extends Orchestra
     /** @param  Application  $app */
     protected function defineEnvironment($app): void
     {
+        $app['config']->set('app.key', 'base64:'.base64_encode(random_bytes(32)));
+
         $app['config']->set('filesystems.disks.cold', [
             'driver' => 'local',
             'root' => storage_path('framework/testing/disks/cold'),
@@ -39,6 +58,11 @@ abstract class TestCase extends Orchestra
         $app['config']->set('filesystems.disks.hot', [
             'driver' => 'local',
             'root' => storage_path('framework/testing/disks/hot'),
+        ]);
+
+        $app['config']->set('filesystems.disks.secure', [
+            'driver' => 'local',
+            'root' => storage_path('framework/testing/disks/secure'),
         ]);
     }
 
