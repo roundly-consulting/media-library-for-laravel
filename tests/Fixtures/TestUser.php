@@ -67,6 +67,14 @@ final class TestUser extends Model implements HasMedia
             ->useDisk('public')
             ->responsiveWidths([16])
             ->responsiveFormat('webp');
+
+        // Fully-constrained bucket used to derive validation rules from its definition.
+        $this->addMediaBucket('documents')
+            ->useDisk('public')
+            ->acceptsMimeTypes(['image/jpeg', 'image/png'])
+            ->maxFileSize(5 * 1024 * 1024)
+            ->minDimensions(100, 100)
+            ->maxDimensions(4096, 4096);
     }
 
     public function registerMediaVariants(?Media $media = null): void
