@@ -156,6 +156,67 @@ Requesting `getUrl('thumb')` for a variant that hasn't been generated throws `In
 by default. Set `config('media.url_fallback_to_original')` to `true` to return the original's
 URL instead.
 
+## Placeholders & responsive images
+
+### Dimensions & LQIP placeholders
+
+When an image is added, the package records its pixel `width`/`height` and computes two
+low-quality image placeholders (LQIP) from a downscaled copy: a **ThumbHash** and a
+**Blurhash**. Both encoders are pure-PHP ports validated against the published reference
+vectors — no third-party dependency. Computation is synchronous and is skipped for non-image
+media.
+
+```php
+$media->width;                 // e.g. 1920 (null for non-images)
+$media->height;                // e.g. 1080
+
+$media->placeholder();         // ['thumbhash' => '1QcSHQ…', 'blurhash' => 'LPDI|4…']
+$media->thumbhash();           // string|null
+$media->blurhash();            // string|null
+$media->placeholderDataUri();  // 'data:image/png;base64,…' — a tiny decoded blur-up image
+```
+
+`placeholderDataUri()` decodes a placeholder server-side (ThumbHash preferred, Blurhash as a
+fallback) into a tiny PNG `data:` URI you can use as a blur-up background while the full image
+loads. Each placeholder type is independently toggleable:
+
+```php
+'placeholders' => [
+    'thumbhash' => true,
+    'blurhash'  => true,
+],
+```
+
+### Responsive images (`srcset`)
+
+Opt a bucket into responsive images with `->responsiveWidths()`. The package generates one
+variant per width through the same variant engine — honouring the sync/queue rules and the
+variants disk — skipping any width larger than the original (it never upscales):
+
+```php
+$this->addMediaBucket('hero')
+    ->useDisk('public')
+    ->responsiveWidths([480, 960, 1440, 1920]) // omit the argument for the config default ladder
+    ->responsiveFormat('webp');                // optional — defaults to the original's format
+```
+
+The default ladder comes from `config('media.responsive.widths')`
+(`[320, 640, 960, 1280, 1920]`). Two model accessors expose the generated widths:
+
+```php
+$media->srcset();
+// "…/responsive-480.webp 480w, …/responsive-960.webp 960w, …" (ascending, only generated widths)
+
+$media->responsiveImage('', ['alt' => 'Hero', 'sizes' => '100vw', 'class' => 'rounded']);
+// <img src="…smallest width…" srcset="…" sizes="100vw" alt="Hero" class="rounded"
+//      style="background-size:cover;background-image:url('data:image/png;base64,…')">
+```
+
+`responsiveImage()` emits a full `<img>` tag with the smallest generated width as the `src`
+fallback, the `srcset`, optional `sizes`/`alt`/`class`, and the LQIP placeholder as an inline
+blur-up background. Requesting it for non-image media throws `MediaIsNotAnImage`.
+`media:regenerate` rebuilds responsive widths and `media:clean` removes orphaned width files.
+
 ## URLs, streaming & downloads
 
 ### Public URLs
