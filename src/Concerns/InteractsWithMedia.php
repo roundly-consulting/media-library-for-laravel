@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Concerns;
 
+use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Http\UploadedFile;
@@ -164,15 +166,40 @@ trait InteractsWithMedia
         return $this->media()->where('bucket_name', $bucket)->first();
     }
 
-    public function getFirstMediaUrl(string $bucket = 'default'): string
+    public function getFirstMediaUrl(string $bucket = 'default', string $variant = ''): string
     {
         $media = $this->getFirstMedia($bucket);
 
         if ($media !== null) {
-            return $media->getUrl();
+            return $media->getUrl($variant);
         }
 
         return $this->resolveMediaBucket($bucket)?->getFallbackUrl() ?? '';
+    }
+
+    /**
+     * A temporary URL for the first media in a bucket (presigned or signed-route, §9.1).
+     *
+     * Returns the bucket's fallback URL (or '') when the bucket is empty. Pass `$expiry` to
+     * override the default lifetime from `config('media.temporary_url_default_lifetime')`.
+     */
+    public function getFirstTemporaryUrl(string $bucket = 'default', string $variant = '', ?DateTimeInterface $expiry = null): string
+    {
+        $media = $this->getFirstMedia($bucket);
+
+        if ($media !== null) {
+            return $media->getTemporaryUrl($expiry ?? $this->defaultTemporaryUrlExpiry(), $variant);
+        }
+
+        return $this->resolveMediaBucket($bucket)?->getFallbackUrl() ?? '';
+    }
+
+    private function defaultTemporaryUrlExpiry(): DateTimeInterface
+    {
+        $minutes = config('media.temporary_url_default_lifetime');
+        $minutes = is_numeric($minutes) ? (int) $minutes : 5;
+
+        return CarbonImmutable::now()->addMinutes($minutes);
     }
 
     public function hasMedia(string $bucket = 'default'): bool

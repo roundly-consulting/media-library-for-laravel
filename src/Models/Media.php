@@ -5,18 +5,21 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Models;
 
 use Carbon\CarbonInterface;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
+use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Database\Factories\MediaFactory;
-use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * @property int $id
@@ -151,15 +154,46 @@ class Media extends Model
 
     public function getUrl(string $variant = ''): string
     {
-        if ($variant === '') {
-            return Storage::disk($this->disk)->url($this->getPath());
+        return $this->urlGenerator()->getUrl($this, $variant);
+    }
+
+    public function getTemporaryUrl(DateTimeInterface $expiry, string $variant = ''): string
+    {
+        return $this->urlGenerator()->getTemporaryUrl($this, $expiry, $variant);
+    }
+
+    public function isPublic(): bool
+    {
+        return $this->visibility !== 'private';
+    }
+
+    public function isPrivate(): bool
+    {
+        return $this->visibility === 'private';
+    }
+
+    /** Stream the media inline (range-aware) straight from its disk. */
+    public function toResponse(Request $request): StreamedResponse
+    {
+        $variant = $this->variantFromRequest($request);
+
+        if ($this->wantsDownload($request)) {
+            return $this->toDownloadResponse(null, $variant);
         }
 
-        if (! $this->hasGeneratedVariant($variant)) {
-            return $this->urlForUngeneratedVariant($variant);
+        if ($request->headers->has('Range')) {
+            return $this->rangeResponse($request, $variant);
         }
 
-        return Storage::disk($this->diskFor($variant))->url($this->getPath($variant));
+        return Storage::disk($this->diskFor($variant))
+            ->response($this->getPath($variant), $this->file_name, $this->streamHeaders());
+    }
+
+    /** Force a download (HTTP attachment) of the media from its disk. */
+    public function toDownloadResponse(?string $name = null, string $variant = ''): StreamedResponse
+    {
+        return Storage::disk($this->diskFor($variant))
+            ->download($this->getPath($variant), $name ?? $this->file_name);
     }
 
     public function hasGeneratedVariant(string $name): bool
@@ -228,15 +262,119 @@ class Media extends Model
         return $extension === 'jpeg' ? 'jpg' : $extension;
     }
 
-    private function urlForUngeneratedVariant(string $variant): string
+    /**
+     * Serve a single byte range with a 206 response, seeking the disk stream rather than buffering
+     * the whole file. Unsatisfiable ranges yield 416.
+     */
+    private function rangeResponse(Request $request, string $variant): StreamedResponse
     {
-        $fallback = config('media.url_fallback_to_original');
+        $disk = $this->diskFor($variant);
+        $path = $this->getPath($variant);
+        $size = Storage::disk($disk)->size($path);
 
-        if ($fallback === true) {
-            return $this->getUrl();
+        $range = $this->parseRange((string) $request->headers->get('Range'), $size);
+
+        if ($range === null) {
+            $response = new StreamedResponse(status: 416);
+            $response->headers->set('Content-Range', "bytes */{$size}");
+
+            return $response;
         }
 
-        throw InvalidVariant::notGenerated($variant);
+        [$start, $end] = $range;
+        $length = $end - $start + 1;
+
+        $headers = $this->streamHeaders();
+        $headers['Content-Length'] = (string) $length;
+        $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
+        $headers['Accept-Ranges'] = 'bytes';
+
+        return new StreamedResponse(function () use ($disk, $path, $start, $length): void {
+            $stream = Storage::disk($disk)->readStream($path);
+
+            if ($stream === null) {
+                return;
+            }
+
+            fseek($stream, $start);
+            $remaining = $length;
+
+            while ($remaining > 0 && ! feof($stream)) {
+                $chunk = fread($stream, (int) min(8192, $remaining));
+
+                if ($chunk === false) {
+                    break;
+                }
+
+                echo $chunk;
+                $remaining -= strlen($chunk);
+            }
+
+            fclose($stream);
+        }, 206, $headers);
+    }
+
+    /**
+     * Parse a single `bytes=start-end` range against the file size.
+     *
+     * @return array{0: int, 1: int}|null [start, end] inclusive, or null if unsatisfiable
+     */
+    private function parseRange(string $header, int $size): ?array
+    {
+        if (! preg_match('/^bytes=(\d*)-(\d*)$/', $header, $matches)) {
+            return null;
+        }
+
+        [$rawStart, $rawEnd] = [$matches[1], $matches[2]];
+
+        if ($rawStart === '' && $rawEnd === '') {
+            return null;
+        }
+
+        if ($rawStart === '') {
+            $start = max(0, $size - (int) $rawEnd);
+            $end = $size - 1;
+        } else {
+            $start = (int) $rawStart;
+            $end = $rawEnd === '' ? $size - 1 : (int) $rawEnd;
+        }
+
+        $end = min($end, $size - 1);
+
+        if ($start > $end || $start >= $size) {
+            return null;
+        }
+
+        return [$start, $end];
+    }
+
+    private function variantFromRequest(Request $request): string
+    {
+        $variant = $request->route('variant');
+
+        return is_string($variant) ? $variant : '';
+    }
+
+    private function wantsDownload(Request $request): bool
+    {
+        return $request->boolean('download');
+    }
+
+    /** @return array<string, string> */
+    private function streamHeaders(): array
+    {
+        $headers = [];
+
+        if (is_string($this->mime_type) && $this->mime_type !== '') {
+            $headers['Content-Type'] = $this->mime_type;
+        }
+
+        return $headers;
+    }
+
+    private function urlGenerator(): UrlGenerator
+    {
+        return app(UrlGenerator::class);
     }
 
     private function pathGenerator(): PathGenerator
