@@ -28,5 +28,6 @@ final readonly class PendingFileAddState
         public ?string $visibility,
         public bool $preserveOriginal,
         public array $customProperties,
+        public ?string $queue = null,
     ) {}
 }

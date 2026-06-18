@@ -11,8 +11,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
+use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Database\Factories\MediaFactory;
+use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
+use RoundlyConsulting\MediaLibrary\Variants\Variant;
+use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 
 /**
  * @property int $id
@@ -130,25 +134,57 @@ class Media extends Model
         $query->whereNotNull('draft_token');
     }
 
-    public function getPath(): string
+    public function getPath(string $variant = ''): string
     {
-        return $this->pathGenerator()->getPath($this).$this->file_name;
+        if ($variant === '') {
+            return $this->pathGenerator()->getPath($this).$this->file_name;
+        }
+
+        return $this->pathGenerator()->getPathForVariants($this).$this->variantFileName($variant);
     }
 
     /** @return resource|null */
-    public function getStream()
+    public function getStream(string $variant = '')
     {
-        return Storage::disk($this->disk)->readStream($this->getPath());
+        return Storage::disk($this->diskFor($variant))->readStream($this->getPath($variant));
     }
 
-    public function getUrl(): string
+    public function getUrl(string $variant = ''): string
     {
-        return Storage::disk($this->disk)->url($this->getPath());
+        if ($variant === '') {
+            return Storage::disk($this->disk)->url($this->getPath());
+        }
+
+        if (! $this->hasGeneratedVariant($variant)) {
+            return $this->urlForUngeneratedVariant($variant);
+        }
+
+        return Storage::disk($this->diskFor($variant))->url($this->getPath($variant));
     }
 
     public function hasGeneratedVariant(string $name): bool
     {
         return ($this->generated_variants[$name] ?? false) === true;
+    }
+
+    /**
+     * Resolve the variant definitions that apply to this media via its owning model's bucket.
+     *
+     * @return list<Variant>
+     */
+    public function resolveVariants(): array
+    {
+        return app(VariantResolver::class)->forMedia($this);
+    }
+
+    /** The disk a given variant (or the original) lives on. */
+    public function diskFor(string $variant = ''): string
+    {
+        if ($variant === '') {
+            return $this->disk;
+        }
+
+        return $this->variants_disk ?? $this->disk;
     }
 
     public function getCustomProperty(string $key, mixed $default = null): mixed
@@ -170,8 +206,46 @@ class Media extends Model
         return str_starts_with((string) $this->mime_type, 'image/');
     }
 
+    private function variantFileName(string $variant): string
+    {
+        return $this->fileNamer()->variantFileName($variant, $this->variantExtension($variant));
+    }
+
+    private function variantExtension(string $variant): string
+    {
+        foreach ($this->resolveVariants() as $definition) {
+            if ($definition->name === $variant && $definition->getFormat() !== null) {
+                return $definition->getFormat();
+            }
+        }
+
+        $extension = $this->extension;
+
+        if ($extension === null || $extension === '') {
+            return 'jpg';
+        }
+
+        return $extension === 'jpeg' ? 'jpg' : $extension;
+    }
+
+    private function urlForUngeneratedVariant(string $variant): string
+    {
+        $fallback = config('media.url_fallback_to_original');
+
+        if ($fallback === true) {
+            return $this->getUrl();
+        }
+
+        throw InvalidVariant::notGenerated($variant);
+    }
+
     private function pathGenerator(): PathGenerator
     {
         return app(PathGenerator::class);
+    }
+
+    private function fileNamer(): FileNamer
+    {
+        return app(FileNamer::class);
     }
 }

@@ -14,8 +14,11 @@ use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
+use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
+use RoundlyConsulting\MediaLibrary\Variants\Variant;
+use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 
 /**
  * Persists a normalized source file as a {@see Media} row and writes its bytes through
@@ -27,6 +30,8 @@ final class AddMediaAction
         private readonly DiskResolver $diskResolver,
         private readonly PathGenerator $pathGenerator,
         private readonly FileNamer $fileNamer,
+        private readonly GenerateVariantsAction $generateVariants,
+        private readonly VariantResolver $variantResolver,
     ) {}
 
     public function execute(PendingFileAddState $state): Media
@@ -52,7 +57,73 @@ final class AddMediaAction
 
         event(new MediaHasBeenAdded($media));
 
+        $this->generateVariantsFor($media, $bucket, $state);
+
         return $media;
+    }
+
+    private function generateVariantsFor(Media $media, ?MediaBucket $bucket, PendingFileAddState $state): void
+    {
+        if ($bucket === null || ! $media->isImage() || ! $state->owner instanceof HasMedia) {
+            return;
+        }
+
+        $variants = $this->variantResolver->forOwnerBucket($state->owner, $state->bucket, $media);
+
+        if ($variants === []) {
+            return;
+        }
+
+        $sync = [];
+        $queued = [];
+
+        foreach ($variants as $variant) {
+            if ($this->shouldQueue($variant)) {
+                $queued[] = $variant->name;
+            } else {
+                $sync[] = $variant;
+            }
+        }
+
+        if ($sync !== []) {
+            $this->generateVariants->execute($media, $sync);
+        }
+
+        if ($queued !== []) {
+            $this->dispatchQueued($media, $queued, $state);
+        }
+    }
+
+    private function shouldQueue(Variant $variant): bool
+    {
+        $perVariant = $variant->isQueued();
+
+        if ($perVariant !== null) {
+            return $perVariant;
+        }
+
+        return config('media.queue_variants_by_default') === true;
+    }
+
+    /**
+     * @param  list<string>  $variantNames
+     */
+    private function dispatchQueued(Media $media, array $variantNames, PendingFileAddState $state): void
+    {
+        $job = new GenerateVariantsJob((int) $media->getKey(), $variantNames);
+
+        $connection = config('media.queue_connection');
+        $queue = $state->queue ?? config('media.queue_name');
+
+        if (is_string($connection)) {
+            $job->onConnection($connection);
+        }
+
+        if (is_string($queue)) {
+            $job->onQueue($queue);
+        }
+
+        dispatch($job);
     }
 
     private function makeMedia(

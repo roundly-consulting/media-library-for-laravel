@@ -30,6 +30,8 @@ final class PendingFileAdd
 
     private bool $preserveOriginal = false;
 
+    private ?string $queue = null;
+
     /** @var array<string, mixed> */
     private array $customProperties = [];
 
@@ -76,6 +78,14 @@ final class PendingFileAdd
     public function preservingOriginal(bool $preserve = true): self
     {
         $this->preserveOriginal = $preserve;
+
+        return $this;
+    }
+
+    /** Queue name used when this add's variants are generated on a queue. */
+    public function onQueue(string $queue): self
+    {
+        $this->queue = $queue;
 
         return $this;
     }
@@ -132,6 +142,7 @@ final class PendingFileAdd
             visibility: $this->visibility,
             preserveOriginal: $this->preserveOriginal,
             customProperties: $this->customProperties,
+            queue: $this->queue,
         );
     }
 }

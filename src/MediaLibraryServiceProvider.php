@@ -6,10 +6,12 @@ namespace RoundlyConsulting\MediaLibrary;
 
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
+use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Observers\MediaObserver;
+use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 
 final class MediaLibraryServiceProvider extends ServiceProvider
 {
@@ -23,6 +25,10 @@ final class MediaLibraryServiceProvider extends ServiceProvider
         $this->bindFromConfig(PathGenerator::class, 'media.path_generator');
         $this->bindFromConfig(FileNamer::class, 'media.file_namer');
         $this->bindFromConfig(UrlGenerator::class, 'media.url_generator');
+
+        // Resolved lazily: media without variants never needs an image extension, and the
+        // Imagick->GD fallback (or VariantDriverUnavailable) is decided at resolution time.
+        $this->app->bind(ImageDriver::class, static fn (): ImageDriver => ImageDriverFactory::make());
     }
 
     public function boot(): void

@@ -12,6 +12,9 @@ use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Variants\Variant;
+use RoundlyConsulting\MediaLibrary\Variants\VariantCollection;
+use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
 
 /**
  * Opt-in media behaviour for Eloquent models: the `media()` relation, fluent file adders,
@@ -26,6 +29,8 @@ trait InteractsWithMedia
 
     private bool $mediaBucketsRegistered = false;
 
+    private ?VariantRegistrar $variantRegistrar = null;
+
     /** @return MorphMany<Media, $this> */
     public function media(): MorphMany
     {
@@ -38,6 +43,35 @@ trait InteractsWithMedia
     public function registerMediaBuckets(): void
     {
         // Host models override this to declare their buckets.
+    }
+
+    /**
+     * Host hook for variants declared outside a bucket closure, targeted with
+     * `->performOnBuckets()`. The optional media is passed so variants can vary per file.
+     */
+    public function registerMediaVariants(?Media $media = null): void
+    {
+        // Host models may override this to declare model-wide variants.
+    }
+
+    /** Run the model-level variant hook and return its collected definitions. */
+    public function resolveModelMediaVariants(?Media $media = null): VariantCollection
+    {
+        $registrar = new VariantRegistrar;
+
+        $this->variantRegistrar = $registrar;
+        $this->registerMediaVariants($media);
+        $this->variantRegistrar = null;
+
+        return $registrar->collection();
+    }
+
+    /** Used inside `registerMediaVariants()` to declare a variant: `$this->addMediaVariant('x')`. */
+    public function addMediaVariant(string $name): Variant
+    {
+        $registrar = $this->variantRegistrar ?? new VariantRegistrar;
+
+        return $registrar->add($name);
     }
 
     public function addMediaBucket(string $name): MediaBucket
