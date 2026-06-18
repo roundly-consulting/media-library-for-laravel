@@ -30,6 +30,14 @@ final class MediaBucket
 
     private bool $singleFile = false;
 
+    private ?int $maxFileSize = null;
+
+    /** @var array{0: int, 1: int}|null */
+    private ?array $minDimensions = null;
+
+    /** @var array{0: int, 1: int}|null */
+    private ?array $maxDimensions = null;
+
     private ?string $visibility = null;
 
     private ?string $fallbackUrl = null;
@@ -108,6 +116,47 @@ final class MediaBucket
     public function isSingleFile(): bool
     {
         return $this->singleFile;
+    }
+
+    /** Maximum accepted file size in bytes; used to derive a `max:` validation rule (in KB). */
+    public function maxFileSize(int $bytes): self
+    {
+        $this->maxFileSize = $bytes;
+
+        return $this;
+    }
+
+    public function getMaxFileSize(): ?int
+    {
+        return $this->maxFileSize;
+    }
+
+    /** Minimum accepted image dimensions; used to derive `dimensions:min_width=…,min_height=…`. */
+    public function minDimensions(int $width, int $height): self
+    {
+        $this->minDimensions = [$width, $height];
+
+        return $this;
+    }
+
+    /** @return array{0: int, 1: int}|null */
+    public function getMinDimensions(): ?array
+    {
+        return $this->minDimensions;
+    }
+
+    /** Maximum accepted image dimensions; used to derive `dimensions:max_width=…,max_height=…`. */
+    public function maxDimensions(int $width, int $height): self
+    {
+        $this->maxDimensions = [$width, $height];
+
+        return $this;
+    }
+
+    /** @return array{0: int, 1: int}|null */
+    public function getMaxDimensions(): ?array
+    {
+        return $this->maxDimensions;
     }
 
     public function private(): self
