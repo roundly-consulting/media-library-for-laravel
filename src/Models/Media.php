@@ -12,10 +12,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Actions\CopyMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\MoveMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\ReplaceMediaAction;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
@@ -262,6 +264,16 @@ class Media extends Model
     public function deleteWithFiles(): void
     {
         app(DeleteMediaAction::class)->execute($this);
+    }
+
+    /**
+     * Replace the underlying original with new bytes, keeping this media's `id`, `uuid`, and URL.
+     * Checksum, size, mime, extension, dimensions, and placeholders are recomputed and variants
+     * are regenerated. Returns this media.
+     */
+    public function replace(string|UploadedFile $file): self
+    {
+        return app(ReplaceMediaAction::class)->execute($this, $file);
     }
 
     /**
