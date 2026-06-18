@@ -15,8 +15,8 @@ use RoundlyConsulting\MediaLibrary\Observers\MediaObserver;
  * via `forceDelete()`, so the cleanup logic lives in exactly one place — a soft delete still
  * keeps the files, an explicit delete (or any `forceDelete`) removes them.
  *
- * Phase 5 will refcount-guard the underlying file removal so shared deduplicated files survive
- * until the last referrer is deleted.
+ * The observer refcount-guards the original (§7.1): a shared deduplicated file survives until the
+ * last referrer is deleted; this row's own variants are always removed.
  */
 final class DeleteMediaAction
 {

@@ -29,6 +29,7 @@ final class MediaFactory extends Factory
             'extension' => 'jpg',
             'disk' => 'public',
             'variants_disk' => null,
+            'path' => null,
             'size' => $this->faker->numberBetween(1024, 1048576),
             'visibility' => 'public',
             'custom_properties' => [],

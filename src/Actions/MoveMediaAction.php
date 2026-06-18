@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenMoved;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
 
@@ -20,14 +21,16 @@ use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
  * The DB update runs inside a transaction; the physical source files are deleted only after the
  * transaction commits, so a rollback never orphans the row from its files.
  *
- * Phase 5 will refcount-guard the deletes here (shared deduplicated files survive until their last
- * referrer goes); for now each media owns its files and the source is always removed.
+ * The source original is refcount-guarded (§7.1): when another non-trashed row still shares the
+ * `(disk, visibility, checksum)`, the cross-disk move COPIES to the target and re-points this row
+ * but leaves the shared source in place. Variants are always per-row, so they relocate freely.
  */
 final class MoveMediaAction
 {
     public function __construct(
         private readonly DiskResolver $diskResolver,
         private readonly FileTransfer $fileTransfer,
+        private readonly Checksum $checksum,
     ) {}
 
     public function execute(
@@ -40,13 +43,21 @@ final class MoveMediaAction
         $this->diskResolver->ensureDiskExists($targetDisk);
 
         $sourceDisk = $media->disk;
-        $sourcePath = $media->getPath();
 
-        $cleanup = $this->relocateFiles($media, $sourceDisk, $targetDisk);
+        // Resolved before the row is re-pointed: is the SOURCE original still referenced elsewhere?
+        $sourceShared = $this->checksum->isSharedByOthers($media);
 
-        DB::transaction(function () use ($media, $toModel, $bucket, $targetDisk): void {
+        $cleanup = $this->relocateFiles($media, $sourceDisk, $targetDisk, $sourceShared);
+
+        DB::transaction(function () use ($media, $toModel, $bucket, $targetDisk, $sourceDisk): void {
             $this->rehome($media, $toModel, $bucket);
-            $media->disk = $targetDisk;
+
+            if ($targetDisk !== $sourceDisk) {
+                // The original now lives at the same relative path on the target disk.
+                $media->path = $this->pathOnTargetDisk($media);
+                $media->disk = $targetDisk;
+            }
+
             $media->save();
         });
 
@@ -54,8 +65,6 @@ final class MoveMediaAction
         foreach ($cleanup as [$cleanupDisk, $cleanupPath]) {
             $this->fileTransfer->delete($cleanupDisk, $cleanupPath);
         }
-
-        unset($sourcePath);
 
         event(new MediaHasBeenMoved($media));
 
@@ -95,9 +104,13 @@ final class MoveMediaAction
      * Move the original (and any variants that share the original disk) onto the target disk,
      * returning the source files to delete after commit.
      *
+     * When the source original is still shared by other rows it is copied but NOT scheduled for
+     * deletion — only the last referrer removes it. Variants are always per-row, so they relocate
+     * and are cleaned up unconditionally.
+     *
      * @return list<array{0: string, 1: string}>
      */
-    private function relocateFiles(Media $media, string $sourceDisk, string $targetDisk): array
+    private function relocateFiles(Media $media, string $sourceDisk, string $targetDisk, bool $sourceShared): array
     {
         if ($sourceDisk === $targetDisk) {
             return [];
@@ -105,7 +118,7 @@ final class MoveMediaAction
 
         $this->fileTransfer->copy($sourceDisk, $media->getPath(), $targetDisk, $media->getPath(), $media->visibility);
 
-        $cleanup = [[$sourceDisk, $media->getPath()]];
+        $cleanup = $sourceShared ? [] : [[$sourceDisk, $media->getPath()]];
 
         // Variants that lived on the original disk (variants_disk === null) follow the original.
         if ($media->variants_disk === null) {
@@ -116,6 +129,12 @@ final class MoveMediaAction
         }
 
         return $cleanup;
+    }
+
+    /** The original's path on the target disk — the same relative path it had on the source disk. */
+    private function pathOnTargetDisk(Media $media): string
+    {
+        return $media->getPath();
     }
 
     /**

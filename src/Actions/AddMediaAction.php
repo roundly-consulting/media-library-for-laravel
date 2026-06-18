@@ -16,6 +16,7 @@ use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
@@ -32,6 +33,7 @@ final class AddMediaAction
         private readonly FileNamer $fileNamer,
         private readonly GenerateVariantsAction $generateVariants,
         private readonly VariantResolver $variantResolver,
+        private readonly Checksum $checksum,
     ) {}
 
     public function execute(PendingFileAddState $state): Media
@@ -51,7 +53,10 @@ final class AddMediaAction
 
         $media = $this->makeMedia($state, $bucket, $disk, $variantsDisk, $visibility);
 
-        $this->writeFile($media, $state, $disk, $visibility);
+        $checksum = $this->checksum->forLocalFile($state->file->path);
+        $media->checksum = $checksum;
+
+        $this->storeOriginal($media, $state, $disk, $visibility, $checksum);
 
         $media->save();
 
@@ -163,9 +168,29 @@ final class AddMediaAction
         return $media;
     }
 
-    private function writeFile(Media $media, PendingFileAddState $state, string $disk, string $visibility): void
-    {
+    /**
+     * Store the original's bytes, deduplicating when an identical `(disk, visibility, checksum)`
+     * already exists: a deduped row points its `path` at the canonical file and writes nothing.
+     */
+    private function storeOriginal(
+        Media $media,
+        PendingFileAddState $state,
+        string $disk,
+        string $visibility,
+        ?string $checksum,
+    ): void {
+        $canonical = $this->dedupCanonical($disk, $visibility, $checksum);
+
+        if ($canonical !== null) {
+            $media->path = $canonical->getPath();
+
+            $this->discardSource($state);
+
+            return;
+        }
+
         $target = $this->pathGenerator->getPath($media).$media->file_name;
+        $media->path = $target;
 
         $stream = fopen($state->file->path, 'rb');
 
@@ -179,6 +204,20 @@ final class AddMediaAction
             fclose($stream);
         }
 
+        $this->discardSource($state);
+    }
+
+    private function dedupCanonical(string $disk, string $visibility, ?string $checksum): ?Media
+    {
+        if ($checksum === null || config('media.deduplicate') !== true) {
+            return null;
+        }
+
+        return $this->checksum->canonicalFor($disk, $visibility, $checksum);
+    }
+
+    private function discardSource(PendingFileAddState $state): void
+    {
         if (! $state->preserveOriginal && $state->file->isTemporary && is_file($state->file->path)) {
             @unlink($state->file->path);
         }

@@ -21,6 +21,8 @@ use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Database\Factories\MediaFactory;
+use RoundlyConsulting\MediaLibrary\Exceptions\ChecksumMismatch;
+use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -37,6 +39,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * @property string|null $extension
  * @property string $disk
  * @property string|null $variants_disk
+ * @property string|null $path
  * @property int $size
  * @property string $visibility
  * @property array<string, mixed>|null $custom_properties
@@ -144,6 +147,12 @@ class Media extends Model
     public function getPath(string $variant = ''): string
     {
         if ($variant === '') {
+            // A stored `path` (set on add, or pointed at a shared original on dedup) wins over the
+            // uuid-derived layout so a deduplicated row resolves to the canonical file's bytes.
+            if (is_string($this->path) && $this->path !== '') {
+                return $this->path;
+            }
+
             return $this->pathGenerator()->getPath($this).$this->file_name;
         }
 
@@ -159,6 +168,8 @@ class Media extends Model
     /** @return resource|null */
     public function getStream(string $variant = '')
     {
+        $this->guardChecksumOnRead($variant);
+
         return Storage::disk($this->diskFor($variant))->readStream($this->getPath($variant));
     }
 
@@ -191,6 +202,8 @@ class Media extends Model
             return $this->toDownloadResponse(null, $variant);
         }
 
+        $this->guardChecksumOnRead($variant);
+
         if ($request->headers->has('Range')) {
             return $this->rangeResponse($request, $variant);
         }
@@ -202,6 +215,8 @@ class Media extends Model
     /** Force a download (HTTP attachment) of the media from its disk. */
     public function toDownloadResponse(?string $name = null, string $variant = ''): StreamedResponse
     {
+        $this->guardChecksumOnRead($variant);
+
         return Storage::disk($this->diskFor($variant))
             ->download($this->getPath($variant), $name ?? $this->file_name);
     }
@@ -284,6 +299,22 @@ class Media extends Model
     public function isImage(): bool
     {
         return str_starts_with((string) $this->mime_type, 'image/');
+    }
+
+    /**
+     * Re-hash the stored original and compare it to the recorded baseline.
+     *
+     * Returns false when no baseline was recorded, the file is missing, or the bytes drifted.
+     */
+    public function verifyIntegrity(): bool
+    {
+        if (! is_string($this->checksum) || $this->checksum === '') {
+            return false;
+        }
+
+        $actual = app(Checksum::class)->forStoredOriginal($this);
+
+        return $actual !== null && hash_equals($this->checksum, $actual);
     }
 
     private function variantFileName(string $variant): string
@@ -392,6 +423,26 @@ class Media extends Model
         }
 
         return [$start, $end];
+    }
+
+    /**
+     * Re-hash the original on read when `media.verify_checksum_on_read` is enabled, throwing
+     * {@see ChecksumMismatch} on drift. Only the original carries a recorded checksum, so variant
+     * reads are not verified.
+     */
+    private function guardChecksumOnRead(string $variant): void
+    {
+        if ($variant !== '' || config('media.verify_checksum_on_read') !== true) {
+            return;
+        }
+
+        if (! is_string($this->checksum) || $this->checksum === '') {
+            return;
+        }
+
+        if (! $this->verifyIntegrity()) {
+            throw ChecksumMismatch::forMedia($this->uuid);
+        }
     }
 
     private function variantFromRequest(Request $request): string

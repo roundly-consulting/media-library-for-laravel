@@ -28,6 +28,11 @@ return new class extends Migration
 
             $table->string('disk');
             $table->string('variants_disk')->nullable();
+
+            // Relative path of the stored ORIGINAL. Populated on every add; on dedup it points at
+            // the canonical row's shared file. Null falls back to uuid-derived path.
+            $table->string('path')->nullable();
+
             $table->unsignedBigInteger('size');
             $table->string('visibility')->default('public');
 
