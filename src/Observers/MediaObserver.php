@@ -25,11 +25,20 @@ final class MediaObserver
         $disk = Storage::disk($media->disk);
         $disk->delete($media->getPath());
 
-        // Remove the media's whole directory (original + any future variants).
+        // Remove the media's whole directory (original + variants stored on the same disk).
         $directory = rtrim($this->pathGenerator->getPath($media), '/');
 
         if ($directory !== '') {
             $disk->deleteDirectory($directory);
+        }
+
+        // Variants stored on a separate disk live under the same uuid path there too.
+        if ($media->variants_disk !== null && $media->variants_disk !== $media->disk) {
+            $variantsDirectory = rtrim($this->pathGenerator->getPath($media), '/');
+
+            if ($variantsDirectory !== '') {
+                Storage::disk($media->variants_disk)->deleteDirectory($variantsDirectory);
+            }
         }
     }
 }
