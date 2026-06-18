@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Buckets;
 
+use Closure;
+use RoundlyConsulting\MediaLibrary\Variants\VariantCollection;
+use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
+
 /**
  * Definition of a named media bucket on a model (or global).
  *
@@ -15,6 +19,11 @@ final class MediaBucket
     private ?string $disk = null;
 
     private ?string $variantsDisk = null;
+
+    /** @var Closure(VariantRegistrar): void|null */
+    private ?Closure $variantsCallback = null;
+
+    private ?VariantCollection $variants = null;
 
     /** @var list<string> */
     private array $acceptedMimeTypes = [];
@@ -144,5 +153,39 @@ final class MediaBucket
     public function getFallbackPath(): ?string
     {
         return $this->fallbackPath;
+    }
+
+    /**
+     * Declare the bucket's image variants. The closure receives a {@see VariantRegistrar}.
+     *
+     * @param  Closure(VariantRegistrar): void  $callback
+     */
+    public function registerVariants(Closure $callback): self
+    {
+        $this->variantsCallback = $callback;
+        $this->variants = null;
+
+        return $this;
+    }
+
+    public function hasVariants(): bool
+    {
+        return $this->variantsCallback !== null;
+    }
+
+    /** Resolve (memoize) and return this bucket's variant definitions. */
+    public function variants(): VariantCollection
+    {
+        if ($this->variants instanceof VariantCollection) {
+            return $this->variants;
+        }
+
+        $registrar = new VariantRegistrar;
+
+        if ($this->variantsCallback !== null) {
+            ($this->variantsCallback)($registrar);
+        }
+
+        return $this->variants = $registrar->collection();
     }
 }
