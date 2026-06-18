@@ -50,6 +50,23 @@ final class TestUser extends Model implements HasMedia
                 // No explicit format: the variant inherits the original's extension.
                 $v->add('keepformat')->width(8);
             });
+
+        // Responsive ladder. 'wide.png' is 40px wide, so 16/24/64 → only 16 and 24 generate.
+        $this->addMediaBucket('hero')
+            ->useDisk('public')
+            ->storingVariantsOnDisk('hot')
+            ->responsiveWidths([16, 24, 64]);
+
+        // Responsive ladder on a single-disk bucket, used for srcset/markup assertions.
+        $this->addMediaBucket('banner')
+            ->useDisk('public')
+            ->responsiveWidths([16, 24]);
+
+        // Responsive ladder that re-encodes every width to webp.
+        $this->addMediaBucket('webphero')
+            ->useDisk('public')
+            ->responsiveWidths([16])
+            ->responsiveFormat('webp');
     }
 
     public function registerMediaVariants(?Media $media = null): void

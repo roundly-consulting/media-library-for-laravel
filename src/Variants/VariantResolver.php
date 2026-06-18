@@ -42,6 +42,10 @@ final class VariantResolver
 
         if ($bucket instanceof MediaBucket) {
             $definitions = $bucket->variants()->all();
+
+            foreach ($this->responsiveVariants($bucket, $media) as $variant) {
+                $definitions[] = $variant;
+            }
         }
 
         foreach ($this->modelLevelVariants($owner, $media, $bucketName) as $variant) {
@@ -49,6 +53,42 @@ final class VariantResolver
         }
 
         return $definitions;
+    }
+
+    /**
+     * Synthesize one width-named variant per responsive ladder width, skipping any width larger
+     * than the original (never upscale) once the media's pixel width is known.
+     *
+     * @return list<Variant>
+     */
+    private function responsiveVariants(MediaBucket $bucket, ?Media $media): array
+    {
+        if (! $bucket->hasResponsiveWidths()) {
+            return [];
+        }
+
+        $originalWidth = $media?->width;
+
+        $variants = [];
+
+        foreach ($bucket->getResponsiveWidths() as $width) {
+            if (is_int($originalWidth) && $originalWidth > 0 && $width > $originalWidth) {
+                continue;
+            }
+
+            $variant = new Variant(ResponsiveImageGenerator::variantName($width));
+            $variant->width($width)->fit('contain');
+
+            $format = $bucket->getResponsiveFormat();
+
+            if ($format !== null) {
+                $variant->format($format);
+            }
+
+            $variants[] = $variant;
+        }
+
+        return $variants;
     }
 
     /**

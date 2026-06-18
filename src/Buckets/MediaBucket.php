@@ -36,6 +36,11 @@ final class MediaBucket
 
     private ?string $fallbackPath = null;
 
+    /** @var list<int>|null */
+    private ?array $responsiveWidths = null;
+
+    private ?string $responsiveFormat = null;
+
     public function __construct(
         public readonly string $name,
     ) {}
@@ -153,6 +158,70 @@ final class MediaBucket
     public function getFallbackPath(): ?string
     {
         return $this->fallbackPath;
+    }
+
+    /**
+     * Opt this bucket into responsive images by declaring an explicit width ladder. Pass no
+     * argument to use the configured default (`config('media.responsive.widths')`). Each width
+     * becomes a generated variant the `srcset()`/`responsiveImage()` helpers read.
+     *
+     * @param  list<int>|null  $widths
+     */
+    public function responsiveWidths(?array $widths = null): self
+    {
+        $this->responsiveWidths = $widths !== null
+            ? array_values(array_unique(array_filter($widths, static fn (int $width): bool => $width > 0)))
+            : $this->configWidths();
+
+        return $this;
+    }
+
+    public function hasResponsiveWidths(): bool
+    {
+        return $this->responsiveWidths !== null;
+    }
+
+    /** @return list<int> */
+    public function getResponsiveWidths(): array
+    {
+        $widths = $this->responsiveWidths ?? [];
+
+        sort($widths);
+
+        return $widths;
+    }
+
+    /** The output format for responsive variants (defaults to the original's format). */
+    public function responsiveFormat(string $format): self
+    {
+        $this->responsiveFormat = $format;
+
+        return $this;
+    }
+
+    public function getResponsiveFormat(): ?string
+    {
+        return $this->responsiveFormat;
+    }
+
+    /** @return list<int> */
+    private function configWidths(): array
+    {
+        $widths = config('media.responsive.widths');
+
+        if (! is_array($widths)) {
+            return [320, 640, 960, 1280, 1920];
+        }
+
+        $clean = [];
+
+        foreach ($widths as $width) {
+            if (is_int($width) && $width > 0) {
+                $clean[] = $width;
+            }
+        }
+
+        return array_values(array_unique($clean));
     }
 
     /**

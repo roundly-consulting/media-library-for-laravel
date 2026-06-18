@@ -22,7 +22,9 @@ use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Database\Factories\MediaFactory;
 use RoundlyConsulting\MediaLibrary\Exceptions\ChecksumMismatch;
+use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
+use RoundlyConsulting\MediaLibrary\Variants\ResponsiveImageGenerator;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -299,6 +301,66 @@ class Media extends Model
     public function isImage(): bool
     {
         return str_starts_with((string) $this->mime_type, 'image/');
+    }
+
+    /**
+     * The stored LQIP placeholder map, e.g. `['thumbhash' => '…', 'blurhash' => '…']`.
+     *
+     * @return array<string, string>
+     */
+    public function placeholder(): array
+    {
+        /** @var array<string, string> */
+        return $this->placeholders ?? [];
+    }
+
+    /** The stored ThumbHash, or null when none was computed (e.g. non-image, or toggled off). */
+    public function thumbhash(): ?string
+    {
+        $value = $this->placeholder()['thumbhash'] ?? null;
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /** The stored Blurhash, or null when none was computed. */
+    public function blurhash(): ?string
+    {
+        $value = $this->placeholder()['blurhash'] ?? null;
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * A tiny decoded-placeholder `data:` URI (server-side decode of ThumbHash, else Blurhash),
+     * suitable as a blur-up background. Null when this media carries no placeholder.
+     */
+    public function placeholderDataUri(): ?string
+    {
+        if ($this->placeholder() === []) {
+            return null;
+        }
+
+        return app(PlaceholderDataUri::class)->fromPlaceholders($this->placeholder());
+    }
+
+    /**
+     * A `srcset` string for the bucket's responsive width ladder, ascending — e.g.
+     * `"…/320.webp 320w, …/640.webp 640w"`. Only generated widths are included; empty when none.
+     */
+    public function srcset(string $base = ''): string
+    {
+        return app(ResponsiveImageGenerator::class)->srcset($this, $base);
+    }
+
+    /**
+     * A full `<img>` tag with `src` (smallest generated width or the base), `srcset`, optional
+     * `sizes`/`alt`, and the LQIP placeholder as an inline blur-up background.
+     *
+     * @param  array<string, string>  $attributes
+     */
+    public function responsiveImage(string $base = '', array $attributes = []): string
+    {
+        return app(ResponsiveImageGenerator::class)->imageTag($this, $base, $attributes);
     }
 
     /**
