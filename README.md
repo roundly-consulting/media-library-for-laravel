@@ -231,6 +231,57 @@ public function download(Media $media): StreamedResponse
 ],
 ```
 
+## Moving & copying media
+
+Media (and its variants) can be relocated across disks, and re-homed to a different model and
+bucket — including model → global and global → model. Moves stream `readStream()` →
+`writeStream()` across disks (same-disk moves use the filesystem's native `move()`), and the
+database update runs in a transaction with the source files removed only after it commits, so a
+rollback never orphans the row from its files.
+
+```php
+// Move the original (and same-disk variants) to another disk.
+$media->moveToDisk('cold');
+
+// Move only the variant files to another disk; the original stays put.
+$media->moveVariantsToDisk('hot');
+
+// Re-home to a different model and bucket (deletes the source files).
+$media->move($otherUser, 'gallery');
+
+// Move a model's media to global storage (no owner).
+$media->move(null, 'brand');
+
+// Copy instead of move: a new row with a fresh UUID, source preserved.
+$copy = $media->copy($otherUser, 'gallery', 'cold');
+```
+
+Both fire events — `MediaHasBeenMoved` after a move, and `MediaHasBeenAdded` for the new row a
+copy creates. `MoveMediaAction`, `CopyMediaAction` and `DeleteMediaAction` are resolvable from the
+container if you prefer calling them directly.
+
+To permanently delete a media with its files, use `deleteWithFiles()` (or the
+`DeleteMediaAction`). A plain `delete()` is a soft delete and **keeps** the files so a restore
+stays lossless; only a force delete (or `deleteWithFiles()`) removes them, which fires
+`MediaHasBeenDeleted`.
+
+## Artisan commands
+
+```bash
+# Regenerate image variants. Optionally filter by model type or ids, limit to named
+# variants with --only, and force regeneration of already-generated variants with --force.
+php artisan media:regenerate
+php artisan media:regenerate "App\Models\User" --ids=1,2,3 --only=thumb,display --force
+
+# Remove orphaned variant files (files in a media's variants directory it no longer
+# references). Conservative: it never touches soft-deleted media.
+php artisan media:clean
+
+# Clear a bucket — delete every media (row + files) in it. Omit the model for global media.
+php artisan media:clear "App\Models\User" avatar
+php artisan media:clear "" brand
+```
+
 ## Testing
 
 ```bash
