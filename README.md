@@ -366,6 +366,85 @@ Point public URLs at a CDN without touching your code. Enable `media.cdn` and se
 Only **public** URLs are rewritten onto the CDN host; private/temporary URLs stay
 signed/presigned. A custom `media.url_generator` always takes precedence over the CDN generator.
 
+## Draft (temporary) media
+
+Upload a file **before** the owning model exists, then bind it once the model is saved. A draft is
+an ordinary media row with no owner, a generated `draft_token`, and a `draft_expires_at` TTL
+(default 24h, `media.drafts.ttl`). Variants and placeholders are still computed on add.
+
+```php
+use RoundlyConsulting\MediaLibrary\Facades\Media;
+
+// Upload step — no model yet. Hand the token back to the client.
+$draft = Media::draft($request->file('avatar'))->toBucket('avatar');
+$token = $draft->draft_token;
+
+// The model trait builder can also stage a draft:
+$user->addMedia($file)->asDraft()->toMediaBucket('avatar');
+
+// When the form is submitted and the model is saved, bind by token:
+$user->attachDraftMedia($token, 'avatar');   // sets the owner, clears the token
+```
+
+Binding throws `DraftMediaNotFound` (unknown / already-bound token) or `DraftMediaExpired` (past
+TTL). Schedule `media:prune-drafts` to delete expired, never-bound drafts.
+
+`RoundlyConsulting\MediaLibrary\Events\DraftMediaHasBeenBound` fires after a successful bind.
+
+## Validation rules from a bucket
+
+Declare a bucket's constraints once, then reuse them in any FormRequest — change the bucket and the
+rules follow.
+
+```php
+$this->addMediaBucket('avatar')
+    ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp'])
+    ->maxFileSize(5 * 1024 * 1024)   // bytes
+    ->minDimensions(100, 100)
+    ->maxDimensions(4096, 4096);
+
+// In a FormRequest:
+public function rules(): array
+{
+    return [
+        'avatar' => Media::rulesFor(User::class, 'avatar'),
+        // ['file', 'mimetypes:image/jpeg,image/png,image/webp', 'max:5120',
+        //  'dimensions:min_width=100,min_height=100,max_width=4096,max_height=4096']
+    ];
+}
+```
+
+Only declared constraints emit a rule (`max` is expressed in kilobytes); an undeclared or unknown
+bucket yields `['file']`.
+
+## Replace in place
+
+Swap a media's underlying original while keeping the **same `id`, `uuid`, and URL**, so existing
+links and embeds keep working. The checksum, size, mime type, extension, dimensions, and
+placeholders are recomputed and variants are regenerated.
+
+```php
+$media->replace($request->file('avatar'));   // same id/uuid/url, new bytes
+```
+
+Dedup is respected on both sides: the old original is only physically removed when no other row
+still references it, and the new bytes reuse an existing identical file when one exists.
+`RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced` fires on completion.
+
+## Attach existing media by reference
+
+Link an existing (often global) media to a model **without re-uploading** — a new row is created
+that shares the same stored original on the same `(disk, visibility)`, copying **zero bytes**. The
+target bucket's variants are generated fresh for the new row.
+
+```php
+$logo = Media::bucket('brand')->first();
+$user->attachMedia($logo, 'avatar');          // new row, same file, no copy
+```
+
+The shared original stays refcount-guarded: it survives until the last referrer is deleted or moved
+away.
+
 ## Artisan commands
 
 ```bash
@@ -386,6 +465,9 @@ php artisan media:clear "" brand
 # exits non-zero on any failure — useful after disk migrations or to detect bit-rot.
 php artisan media:verify
 php artisan media:verify "App\Models\User" --ids=1,2,3
+
+# Prune expired, never-bound draft media (rows + files). Schedule this if you use drafts.
+php artisan media:prune-drafts
 ```
 
 ## Testing
