@@ -16,10 +16,13 @@ use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
+use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
+use Throwable;
 
 /**
  * Persists a normalized source file as a {@see Media} row and writes its bytes through
@@ -34,6 +37,7 @@ final class AddMediaAction
         private readonly GenerateVariantsAction $generateVariants,
         private readonly VariantResolver $variantResolver,
         private readonly Checksum $checksum,
+        private readonly PlaceholderGenerator $placeholders,
     ) {}
 
     public function execute(PendingFileAddState $state): Media
@@ -56,6 +60,9 @@ final class AddMediaAction
         $checksum = $this->checksum->forLocalFile($state->file->path);
         $media->checksum = $checksum;
 
+        // Dimensions + LQIP placeholders read the local source, which storeOriginal() then discards.
+        $this->captureImageMetadata($media, $state);
+
         $this->storeOriginal($media, $state, $disk, $visibility, $checksum);
 
         $media->save();
@@ -65,6 +72,35 @@ final class AddMediaAction
         $this->generateVariantsFor($media, $bucket, $state);
 
         return $media;
+    }
+
+    /**
+     * For image media, read pixel dimensions and compute the LQIP placeholders from the local
+     * source. Non-images are skipped (dimensions/placeholders stay null). Any image-decoding
+     * failure is swallowed so a quirky file never blocks the upload itself.
+     */
+    private function captureImageMetadata(Media $media, PendingFileAddState $state): void
+    {
+        if (! $media->isImage()) {
+            return;
+        }
+
+        $dimensions = @getimagesize($state->file->path);
+
+        if (is_array($dimensions)) {
+            $media->width = $dimensions[0];
+            $media->height = $dimensions[1];
+        }
+
+        try {
+            $placeholders = $this->placeholders->forLocalImage($state->file->path, ImageDriverFactory::make());
+
+            if ($placeholders !== []) {
+                $media->placeholders = $placeholders;
+            }
+        } catch (Throwable) {
+            // A decode/driver failure must not fail the add — the media simply has no placeholder.
+        }
     }
 
     private function generateVariantsFor(Media $media, ?MediaBucket $bucket, PendingFileAddState $state): void
