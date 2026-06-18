@@ -156,6 +156,81 @@ Requesting `getUrl('thumb')` for a variant that hasn't been generated throws `In
 by default. Set `config('media.url_fallback_to_original')` to `true` to return the original's
 URL instead.
 
+## URLs, streaming & downloads
+
+### Public URLs
+
+Public media exposes a direct disk URL:
+
+```php
+$media->getUrl();          // original
+$media->getUrl('thumb');   // a named variant (on the variants disk)
+
+$user->getFirstMediaUrl('avatar');          // first media in a bucket, or its fallback URL / ''
+$user->getFirstMediaUrl('avatar', 'thumb'); // first media's variant URL
+```
+
+Calling `getUrl()` on **private** media throws — private media has no public URL. Use a
+temporary URL instead.
+
+### Temporary URLs for private media
+
+`getTemporaryUrl()` returns a time-limited URL using one API regardless of disk:
+
+- If the disk supports native presigning (S3 and any driver implementing `temporaryUrl()`),
+  it returns the disk's presigned URL — traffic goes straight to the cloud.
+- Otherwise (local/cold disks that can't presign) it returns a Laravel **signed streaming
+  route** URL served by the package's controller.
+
+```php
+use Carbon\CarbonImmutable;
+
+$media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(10));
+$media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(10), 'thumb');
+
+// Trait helper — defaults the lifetime to config('media.temporary_url_default_lifetime'):
+$user->getFirstTemporaryUrl('avatar');
+$user->getFirstTemporaryUrl('avatar', 'thumb', CarbonImmutable::now()->addHour());
+```
+
+### The streaming route
+
+When `config('media.stream.enabled')` is `true` (the default), the package registers a signed
+route — `GET {prefix}/{media}/{variant?}` named `media.stream`. The `{media}` segment binds by
+**UUID**, the route runs the `config('media.stream.middleware')` stack **plus** Laravel's
+`signed` middleware, and the controller streams the file inline (range-aware) or as an
+attachment when `?download=1` is in the signed URL. Private media is reachable only through a
+valid signature (or a native presigned URL).
+
+### Streaming from your own controller
+
+The model can build the responses directly, so you can stream from a controller you already
+own without the package route:
+
+```php
+public function show(Request $request, Media $media): StreamedResponse
+{
+    return $media->toResponse($request);            // inline, range-aware
+}
+
+public function download(Media $media): StreamedResponse
+{
+    return $media->toDownloadResponse('invoice.pdf'); // attachment
+}
+```
+
+### Relevant configuration
+
+```php
+'temporary_url_default_lifetime' => 5,   // minutes, when no expiry is passed
+
+'stream' => [
+    'enabled'      => true,
+    'route_prefix' => 'media',
+    'middleware'   => ['web'],            // 'signed' is always appended by the package
+],
+```
+
 ## Testing
 
 ```bash
