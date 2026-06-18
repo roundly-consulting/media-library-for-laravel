@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -51,7 +52,7 @@ final class AddMediaAction
 
         $visibility = $this->resolveVisibility($state->visibility, $bucket);
 
-        if ($bucket !== null && $bucket->isSingleFile() && $state->owner instanceof Model) {
+        if (! $state->draft && $bucket !== null && $bucket->isSingleFile() && $state->owner instanceof Model) {
             $this->clearBucket($state->owner, $state->bucket);
         }
 
@@ -196,7 +197,11 @@ final class AddMediaAction
         $media->generated_variants = [];
         $media->order_column = $this->nextOrderColumn($state->owner, $state->bucket);
 
-        if ($state->owner instanceof Model) {
+        if ($state->draft) {
+            // A draft stays unbound: no owning model until attachDraftMedia() binds it on save.
+            $media->draft_token = (string) Str::uuid();
+            $media->draft_expires_at = CarbonImmutable::now()->addMinutes($this->draftTtl());
+        } elseif ($state->owner instanceof Model) {
             $media->model_type = $state->owner->getMorphClass();
             $media->model_id = $state->owner->getKey();
         }
@@ -295,6 +300,13 @@ final class AddMediaAction
         }
 
         return (int) $query->max('order_column') + 1;
+    }
+
+    private function draftTtl(): int
+    {
+        $ttl = config('media.drafts.ttl');
+
+        return is_numeric($ttl) ? (int) $ttl : 1440;
     }
 
     private function clearBucket(Model $owner, string $bucket): void

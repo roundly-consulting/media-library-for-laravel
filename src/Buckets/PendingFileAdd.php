@@ -32,6 +32,8 @@ final class PendingFileAdd
 
     private ?string $queue = null;
 
+    private bool $draft = false;
+
     /** @var array<string, mixed> */
     private array $customProperties = [];
 
@@ -39,6 +41,12 @@ final class PendingFileAdd
         private readonly HasMedia|Model|null $owner,
         private readonly AddedFile $file,
     ) {}
+
+    /** The normalized source file backing this add (used by replace-in-place). */
+    public function addedFile(): AddedFile
+    {
+        return $this->file;
+    }
 
     public function usingName(string $name): self
     {
@@ -86,6 +94,17 @@ final class PendingFileAdd
     public function onQueue(string $queue): self
     {
         $this->queue = $queue;
+
+        return $this;
+    }
+
+    /**
+     * Store this media as an unbound draft: the row gets a generated `draft_token` and a TTL
+     * `draft_expires_at`, with no owning model, until `attachDraftMedia()` binds it on save.
+     */
+    public function asDraft(): self
+    {
+        $this->draft = true;
 
         return $this;
     }
@@ -143,6 +162,7 @@ final class PendingFileAdd
             preserveOriginal: $this->preserveOriginal,
             customProperties: $this->customProperties,
             queue: $this->queue,
+            draft: $this->draft,
         );
     }
 }

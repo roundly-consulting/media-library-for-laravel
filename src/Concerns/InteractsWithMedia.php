@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use RoundlyConsulting\MediaLibrary\Actions\AttachMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\BindDraftMediaAction;
 use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
@@ -210,6 +212,26 @@ trait InteractsWithMedia
     public function clearMediaBucket(string $bucket = 'default'): void
     {
         $this->getMedia($bucket)->each(fn (Media $media): mixed => $media->forceDelete());
+    }
+
+    /**
+     * Bind a previously-uploaded draft media (by its token) to this model's bucket.
+     *
+     * Throws when the token is unknown (already bound / never issued) or its TTL has expired.
+     */
+    public function attachDraftMedia(string $token, string $bucket = 'default'): Media
+    {
+        return app(BindDraftMediaAction::class)->execute($this, $token, $bucket);
+    }
+
+    /**
+     * Attach an existing (often global) media to this model by reference — a new row is created
+     * that reuses the same stored original file with zero bytes copied, then the target bucket's
+     * variants are generated for it.
+     */
+    public function attachMedia(Media $media, string $bucket = 'default'): Media
+    {
+        return app(AttachMediaAction::class)->execute($media, $this, $bucket);
     }
 
     private function fileAdderFactory(): FileAdderFactory

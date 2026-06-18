@@ -29,5 +29,6 @@ final readonly class PendingFileAddState
         public bool $preserveOriginal,
         public array $customProperties,
         public ?string $queue = null,
+        public bool $draft = false,
     ) {}
 }

@@ -6,6 +6,7 @@ namespace RoundlyConsulting\MediaLibrary;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
 use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Models\Media;
@@ -18,11 +19,21 @@ final class MediaManager
 {
     public function __construct(
         private readonly FileAdderFactory $fileAdderFactory,
+        private readonly BucketValidationRules $validationRules,
     ) {}
 
     public function add(string|UploadedFile $file): PendingFileAdd
     {
         return $this->fileAdderFactory->fromFile(null, $file);
+    }
+
+    /**
+     * Start a draft media add — the stored row gets a draft token and TTL, with no owning model,
+     * until `attachDraftMedia()` binds it. Chain a terminal `->toBucket()` to persist it.
+     */
+    public function draft(string|UploadedFile $file): PendingFileAdd
+    {
+        return $this->fileAdderFactory->fromFile(null, $file)->asDraft();
     }
 
     public function addFromUrl(string $url): PendingFileAdd
@@ -51,6 +62,18 @@ final class MediaManager
     public function addFromStream($stream): PendingFileAdd
     {
         return $this->fileAdderFactory->fromStream(null, $stream);
+    }
+
+    /**
+     * The Laravel validation rules derived from a model's bucket definition (§6.8) — usable
+     * directly in a FormRequest. Changing the bucket changes the rules.
+     *
+     * @param  class-string  $modelClass
+     * @return list<string>
+     */
+    public function rulesFor(string $modelClass, string $bucket = 'default'): array
+    {
+        return $this->validationRules->forModel($modelClass, $bucket);
     }
 
     /** @return Builder<Media> */

@@ -7,6 +7,7 @@ namespace RoundlyConsulting\MediaLibrary;
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
 use RoundlyConsulting\MediaLibrary\Commands\ClearCommand;
+use RoundlyConsulting\MediaLibrary\Commands\PruneDraftsCommand;
 use RoundlyConsulting\MediaLibrary\Commands\RegenerateVariantsCommand;
 use RoundlyConsulting\MediaLibrary\Commands\VerifyCommand;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
@@ -52,6 +53,7 @@ final class MediaLibraryServiceProvider extends ServiceProvider
                 RegenerateVariantsCommand::class,
                 CleanCommand::class,
                 ClearCommand::class,
+                PruneDraftsCommand::class,
                 VerifyCommand::class,
             ]);
 

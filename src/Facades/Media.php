@@ -12,11 +12,13 @@ use RoundlyConsulting\MediaLibrary\MediaManager;
 
 /**
  * @method static PendingFileAdd add(string|UploadedFile $file)
+ * @method static PendingFileAdd draft(string|UploadedFile $file)
  * @method static PendingFileAdd addFromUrl(string $url)
  * @method static PendingFileAdd addFromDisk(string $path, ?string $disk = null)
  * @method static PendingFileAdd addFromString(string $contents)
  * @method static PendingFileAdd addFromBase64(string $base64)
  * @method static PendingFileAdd addFromStream(resource $stream)
+ * @method static list<string> rulesFor(class-string $modelClass, string $bucket = 'default')
  * @method static Builder<\RoundlyConsulting\MediaLibrary\Models\Media> bucket(string $bucket = 'default')
  * @method static \RoundlyConsulting\MediaLibrary\Models\Media|null find(string $uuid)
  * @method static void clearBucket(string $bucket = 'default')
