@@ -28,7 +28,8 @@ final class ClearCommand extends Command
 
     public function handle(DeleteMediaAction $action): int
     {
-        $bucket = (string) $this->argument('bucket');
+        $bucketArg = $this->input->getArgument('bucket');
+        $bucket = is_string($bucketArg) ? $bucketArg : 'default';
 
         $count = 0;
 
