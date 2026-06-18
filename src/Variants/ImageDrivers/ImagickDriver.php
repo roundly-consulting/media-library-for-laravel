@@ -7,6 +7,7 @@ namespace RoundlyConsulting\MediaLibrary\Variants\ImageDrivers;
 use Imagick;
 use ImagickPixel;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
 
 /**
  * Imagick-backed image driver — the default whenever ext-imagick is loaded.
@@ -110,6 +111,28 @@ final class ImagickDriver implements ImageDriver
     {
         $this->applyFormat();
         $this->image->writeImage($path);
+    }
+
+    public function rgbaPixels(int $maxSize): RgbaImage
+    {
+        $clone = clone $this->image;
+        $clone->setImageColorspace(Imagick::COLORSPACE_SRGB);
+
+        $sourceWidth = $clone->getImageWidth();
+        $sourceHeight = $clone->getImageHeight();
+
+        $scale = min(1.0, $maxSize / max($sourceWidth, $sourceHeight));
+        $width = max(1, (int) round($sourceWidth * $scale));
+        $height = max(1, (int) round($sourceHeight * $scale));
+
+        $clone->thumbnailImage($width, $height, false);
+
+        /** @var list<int> $pixels */
+        $pixels = $clone->exportImagePixels(0, 0, $width, $height, 'RGBA', Imagick::PIXEL_CHAR);
+
+        $clone->clear();
+
+        return new RgbaImage($width, $height, $pixels);
     }
 
     public function supportsFormat(string $format): bool

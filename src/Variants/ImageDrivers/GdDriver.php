@@ -6,6 +6,7 @@ namespace RoundlyConsulting\MediaLibrary\Variants\ImageDrivers;
 
 use GdImage;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
 
 /**
@@ -121,6 +122,37 @@ final class GdDriver implements ImageDriver
     public function save(string $path): void
     {
         file_put_contents($path, $this->encode());
+    }
+
+    public function rgbaPixels(int $maxSize): RgbaImage
+    {
+        [$width, $height] = $this->scaleKeepingRatio(
+            min($maxSize, $this->width()),
+            min($maxSize, $this->height()),
+            $this->width(),
+            $this->height(),
+        );
+
+        $canvas = $this->canvas($width, $height);
+        imagealphablending($canvas, false);
+        imagesavealpha($canvas, true);
+        imagecopyresampled($canvas, $this->image, 0, 0, 0, 0, $width, $height, $this->width(), $this->height());
+
+        $pixels = [];
+
+        for ($y = 0; $y < $height; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $rgba = imagecolorat($canvas, $x, $y);
+                // GD packs alpha as 0..127 (0 = opaque); convert to the 0..255, 255 = opaque scale.
+                $alpha = ($rgba >> 24) & 0x7F;
+                $pixels[] = ($rgba >> 16) & 0xFF;
+                $pixels[] = ($rgba >> 8) & 0xFF;
+                $pixels[] = $rgba & 0xFF;
+                $pixels[] = (int) round(255 - $alpha * 255 / 127);
+            }
+        }
+
+        return new RgbaImage($width, $height, $pixels);
     }
 
     public function supportsFormat(string $format): bool

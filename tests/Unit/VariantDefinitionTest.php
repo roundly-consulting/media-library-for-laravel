@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\GdDriver;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
@@ -133,6 +134,11 @@ it('throws when the driver cannot produce the requested format', function (): vo
         }
 
         public function save(string $path): void {}
+
+        public function rgbaPixels(int $maxSize): RgbaImage
+        {
+            return new RgbaImage(0, 0, []);
+        }
 
         public function supportsFormat(string $format): bool
         {

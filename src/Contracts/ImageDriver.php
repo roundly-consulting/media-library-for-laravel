@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Contracts;
 
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\GdDriver;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImagickDriver;
 
@@ -51,6 +52,12 @@ interface ImageDriver
 
     /** Write the manipulated image to a path on the local filesystem. */
     public function save(string $path): void;
+
+    /**
+     * Read the loaded image as RGBA pixels, downscaled so neither side exceeds `$maxSize`
+     * (never upscaled). Used to compute LQIP placeholders on a cheap, bounded raster.
+     */
+    public function rgbaPixels(int $maxSize): RgbaImage;
 
     /** Whether this driver/build can produce the given output format. */
     public function supportsFormat(string $format): bool;
