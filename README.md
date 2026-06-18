@@ -265,6 +265,46 @@ To permanently delete a media with its files, use `deleteWithFiles()` (or the
 stays lossless; only a force delete (or `deleteWithFiles()`) removes them, which fires
 `MediaHasBeenDeleted`.
 
+## Deduplication & integrity
+
+On every add the package records a content **checksum** (`sha256` by default, via
+`media.checksum_algorithm`) and stores the original's path on the row. With deduplication on
+(`media.deduplicate`, default `true`), two adds whose bytes are identical on the **same disk and
+visibility** share a single physical original — the bytes are written once and both rows resolve
+to the same file. A different disk or visibility is a genuinely different storage location, so it
+is stored separately by design. Variants are never shared: each media generates its own variants
+under its own UUID directory.
+
+Sharing is made safe by **refcount-guarded** delete and move: before a physical original is
+removed (or its source dropped on a cross-disk move), the package checks whether any other
+non-deleted row still references the same `(disk, visibility, checksum)`. The file is only deleted
+when the last referrer goes; a still-shared original is copied to the new disk on move and the
+source is left in place.
+
+```php
+// Verify a single media's stored original against its recorded checksum.
+$media->verifyIntegrity();   // bool — false on drift or a missing file
+```
+
+Set `media.verify_checksum_on_read` to `true` to re-hash the original whenever it is streamed or
+downloaded; a drifted file throws `RoundlyConsulting\MediaLibrary\Exceptions\ChecksumMismatch`.
+
+## CDN URLs
+
+Point public URLs at a CDN without touching your code. Enable `media.cdn` and set a base URL:
+
+```php
+'cdn' => [
+    'enabled'    => true,
+    'base_url'   => env('MEDIA_CDN_URL'),  // https://cdn.example.com
+    'cache_bust' => true,                  // append ?v={updated_at} so replaced media busts caches
+    'disks'      => [],                    // limit rewriting to these disks ([] = all public)
+],
+```
+
+Only **public** URLs are rewritten onto the CDN host; private/temporary URLs stay
+signed/presigned. A custom `media.url_generator` always takes precedence over the CDN generator.
+
 ## Artisan commands
 
 ```bash
@@ -280,6 +320,11 @@ php artisan media:clean
 # Clear a bucket — delete every media (row + files) in it. Omit the model for global media.
 php artisan media:clear "App\Models\User" avatar
 php artisan media:clear "" brand
+
+# Verify stored media against their checksum baselines. Reports missing or drifted files and
+# exits non-zero on any failure — useful after disk migrations or to detect bit-rot.
+php artisan media:verify
+php artisan media:verify "App\Models\User" --ids=1,2,3
 ```
 
 ## Testing
