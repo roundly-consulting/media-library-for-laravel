@@ -75,5 +75,11 @@ abstract class TestCase extends Orchestra
             $table->string('name')->nullable();
             $table->timestamps();
         });
+
+        Schema::create('uuid_test_users', function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->string('name')->nullable();
+            $table->timestamps();
+        });
     }
 }
