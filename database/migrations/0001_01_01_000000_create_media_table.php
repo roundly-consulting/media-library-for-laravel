@@ -16,9 +16,10 @@ return new class extends Migration
             $table->id();
             $table->uuid('uuid')->unique();
 
-            // Polymorphic owner — null on both columns means global media.
+            // Polymorphic owner — null on both columns means global media. `model_id` is a string
+            // morph so owners keyed by integer, UUID, or ULID are all stored without coercion.
             $table->string('model_type')->nullable();
-            $table->unsignedBigInteger('model_id')->nullable();
+            $table->string('model_id')->nullable();
 
             $table->string('bucket_name')->default('default')->index();
             $table->string('name');

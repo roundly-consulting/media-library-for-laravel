@@ -35,7 +35,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * @property int $id
  * @property string $uuid
  * @property string|null $model_type
- * @property int|null $model_id
+ * @property int|string|null $model_id
  * @property string $bucket_name
  * @property string $name
  * @property string $file_name
@@ -84,7 +84,6 @@ class Media extends Model
     protected function casts(): array
     {
         return [
-            'model_id' => 'integer',
             'size' => 'integer',
             'width' => 'integer',
             'height' => 'integer',
