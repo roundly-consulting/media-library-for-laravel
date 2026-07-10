@@ -11,9 +11,39 @@ arch('no debug helpers are left behind')
     ->expect(['dd', 'dump', 'ray', 'var_dump', 'die'])
     ->not->toBeUsed();
 
-arch('the package does not depend on acme')
-    ->expect('Acme')
-    ->not->toBeUsed();
+// Allow-list the vendor roots src may touch. Anything outside this set — any
+// non-whitelisted third-party vendor — fails the suite implicitly.
+arch('src uses only allowed namespaces')
+    ->expect('RoundlyConsulting\MediaLibrary')
+    ->toOnlyUse([
+        'RoundlyConsulting\MediaLibrary',
+        'RoundlyConsulting\MediaLibrary\Database\Factories',
+        'Illuminate',
+        'Symfony\Component\HttpFoundation\StreamedResponse',
+        'Symfony\Component\HttpKernel\Exception\NotFoundHttpException',
+        'Carbon',
+        'Closure',
+        'DateTimeInterface',
+        'GdImage',
+        'Imagick',
+        'ImagickPixel',
+        'IteratorAggregate',
+        'RuntimeException',
+        'Throwable',
+        'Traversable',
+        // native/framework helpers used unqualified
+        'app',
+        'config',
+        'config_path',
+        'database_path',
+        'now',
+        'url',
+        'data_get',
+        'data_set',
+        'event',
+        'dispatch',
+        'request',
+    ]);
 
 arch('actions expose a single execute method')
     ->expect('RoundlyConsulting\MediaLibrary\Actions')
