@@ -18,10 +18,25 @@
             "role": "Developer"
         }
     ],
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../package-toolkit-for-laravel*",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/roundly-consulting/package-toolkit-for-laravel",
+            "no-api": true
+        }
+    ],
     "require": {
         "php": "^8.4",
         "ext-fileinfo": "*",
-        "illuminate/contracts": "^12.0|^13.0"
+        "illuminate/contracts": "^12.0|^13.0",
+        "roundly-consulting/package-toolkit-for-laravel": "@dev"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
@@ -70,6 +85,6 @@
             ]
         }
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "prefer-stable": true
 }
