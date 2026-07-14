@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Clears a bucket — deletes every media (row + files) in it.
@@ -46,10 +47,8 @@ final class ClearCommand extends Command
     /** @return Builder<Media> */
     private function query(string $bucket): Builder
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        $query = $modelClass::query()->where('bucket_name', $bucket);
+        $query = MediaModel::query()->where('bucket_name', $bucket);
 
         $model = $this->argument('model');
 

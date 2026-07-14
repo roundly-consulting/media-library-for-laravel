@@ -11,6 +11,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use RoundlyConsulting\MediaLibrary\Actions\GenerateVariantsAction;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Queued generation of a media's variants. Carries the media id and the variant names (never the
@@ -34,10 +35,8 @@ final class GenerateVariantsJob implements ShouldQueue
 
     public function handle(GenerateVariantsAction $action): void
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        $media = $modelClass::query()->find($this->mediaId);
+        $media = MediaModel::query()->find($this->mediaId);
 
         if (! $media instanceof Media) {
             return;

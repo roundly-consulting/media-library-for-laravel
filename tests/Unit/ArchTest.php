@@ -18,6 +18,7 @@ arch('src uses only allowed namespaces')
     ->toOnlyUse([
         'RoundlyConsulting\MediaLibrary',
         'RoundlyConsulting\MediaLibrary\Database\Factories',
+        'RoundlyConsulting\PackageToolkit',
         'Illuminate',
         'Symfony\Component\HttpFoundation\StreamedResponse',
         'Symfony\Component\HttpKernel\Exception\NotFoundHttpException',
@@ -33,9 +34,8 @@ arch('src uses only allowed namespaces')
         'Traversable',
         // native/framework helpers used unqualified
         'app',
+        'class_basename',
         'config',
-        'config_path',
-        'database_path',
         'now',
         'url',
         'data_get',

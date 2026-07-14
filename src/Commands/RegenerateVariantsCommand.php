@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use RoundlyConsulting\MediaLibrary\Actions\GenerateVariantsAction;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 
 /**
@@ -79,10 +80,8 @@ final class RegenerateVariantsCommand extends Command
     /** @return Builder<Media> */
     private function query(): Builder
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        $query = $modelClass::query();
+        $query = MediaModel::query();
 
         $model = $this->argument('model');
 

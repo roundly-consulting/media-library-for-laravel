@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Attaches an existing (often global) media to a model by reference (§6.9): a NEW row is created
@@ -90,7 +91,7 @@ final class AttachMediaAction
 
     private function nextOrderColumn(Media $media): int
     {
-        $query = Media::query()->where('bucket_name', $media->bucket_name);
+        $query = MediaModel::query()->where('bucket_name', $media->bucket_name);
 
         if ($media->model_type !== null) {
             $query->where('model_type', $media->model_type)->where('model_id', $media->model_id);

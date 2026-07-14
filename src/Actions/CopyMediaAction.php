@@ -12,6 +12,7 @@ use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Duplicates a {@see Media} — its original and generated variants — into a new row with a fresh
@@ -109,7 +110,7 @@ final class CopyMediaAction
 
     private function nextOrderColumn(Media $copy): int
     {
-        $query = Media::query()->where('bucket_name', $copy->bucket_name);
+        $query = MediaModel::query()->where('bucket_name', $copy->bucket_name);
 
         if ($copy->model_type !== null) {
             $query->where('model_type', $copy->model_type)->where('model_id', $copy->model_id);

@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Prunes expired, never-bound draft media (rows + files) via the refcount-guarded delete path.
@@ -28,10 +29,7 @@ final class PruneDraftsCommand extends Command
 
         $count = 0;
 
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
-
-        $modelClass::query()
+        MediaModel::query()
             ->whereNotNull('draft_token')
             ->where('draft_expires_at', '<', $now)
             ->each(function (Media $media) use ($action, &$count): void {

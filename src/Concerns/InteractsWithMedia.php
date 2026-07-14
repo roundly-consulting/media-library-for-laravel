@@ -16,6 +16,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantCollection;
 use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
@@ -38,10 +39,8 @@ trait InteractsWithMedia
     /** @return MorphMany<Media, $this> */
     public function media(): MorphMany
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        return $this->morphMany($modelClass, 'model')->ordered();
+        return $this->morphMany(MediaModel::class(), 'model')->ordered();
     }
 
     public function registerMediaBuckets(): void

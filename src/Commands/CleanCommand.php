@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Observers\MediaObserver;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Conservatively reclaims storage:
@@ -29,10 +30,7 @@ final class CleanCommand extends Command
     {
         $removed = 0;
 
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
-
-        $modelClass::query()->each(function (Media $media) use (&$removed): void {
+        MediaModel::query()->each(function (Media $media) use (&$removed): void {
             $removed += $this->cleanVariants($media);
         });
 

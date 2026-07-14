@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Verifies stored media against their recorded checksum baselines (§7.2).
@@ -70,10 +71,8 @@ final class VerifyCommand extends Command
     /** @return Builder<Media> */
     private function query(): Builder
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        $query = $modelClass::query();
+        $query = MediaModel::query();
 
         $model = $this->argument('model');
 

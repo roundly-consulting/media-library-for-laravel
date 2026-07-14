@@ -10,6 +10,7 @@ use RoundlyConsulting\MediaLibrary\Events\DraftMediaHasBeenBound;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Binds an unbound draft media (matched by its opaque token) to an owning model: sets the
@@ -40,10 +41,8 @@ final class BindDraftMediaAction
 
     private function findDraft(string $token): Media
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        $media = $modelClass::query()
+        $media = MediaModel::query()
             ->whereNotNull('draft_token')
             ->where('draft_token', $token)
             ->first();

@@ -20,6 +20,7 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
@@ -179,9 +180,7 @@ final class AddMediaAction
             $state->fileName ?? $state->file->fileName
         );
 
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
-        $media = new $modelClass;
+        $media = MediaModel::new();
 
         $media->uuid = (string) Str::uuid();
         $media->bucket_name = $state->bucket;
@@ -290,7 +289,7 @@ final class AddMediaAction
 
     private function nextOrderColumn(HasMedia|Model|null $owner, string $bucket): int
     {
-        $query = Media::query()->where('bucket_name', $bucket);
+        $query = MediaModel::query()->where('bucket_name', $bucket);
 
         if ($owner instanceof Model) {
             $query->where('model_type', $owner->getMorphClass())
@@ -311,7 +310,7 @@ final class AddMediaAction
 
     private function clearBucket(Model $owner, string $bucket): void
     {
-        Media::query()
+        MediaModel::query()
             ->where('model_type', $owner->getMorphClass())
             ->where('model_id', $owner->getKey())
             ->where('bucket_name', $bucket)

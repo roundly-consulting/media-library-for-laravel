@@ -74,10 +74,8 @@ final class Checksum
      */
     private function matching(string $disk, string $visibility, string $checksum, ?int $exceptId): Builder
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        $query = $modelClass::query()
+        $query = MediaModel::query()
             ->where('disk', $disk)
             ->where('visibility', $visibility)
             ->where('checksum', $checksum);

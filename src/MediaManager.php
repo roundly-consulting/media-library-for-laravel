@@ -10,6 +10,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
 use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Entry point for global (model-less) media. Backs the {@see Facades\Media}
@@ -96,9 +97,7 @@ final class MediaManager
     /** @return Builder<Media> */
     private function query(): Builder
     {
-        /** @var class-string<Media> $modelClass */
-        $modelClass = config('media.media_model');
 
-        return $modelClass::query();
+        return MediaModel::query();
     }
 }
