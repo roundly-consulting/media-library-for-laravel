@@ -45,7 +45,8 @@ What you get:
 composer require roundly-consulting/media-library-for-laravel
 ```
 
-Publish and run the migration:
+Publish and run the migration. The migration is **publish-only** — the package never loads it, so
+a bare `php artisan migrate` will not create the `media` table until you have published it:
 
 ```bash
 php artisan vendor:publish --tag="media-migrations"
@@ -58,7 +59,14 @@ Optionally publish the config file:
 php artisan vendor:publish --tag="media-config"
 ```
 
-The only publish tags the package exposes are `media-migrations` and `media-config`.
+Publishing the signed streaming route file is optional too — the package registers it for you
+(unless `media.stream.enabled` is `false`); publish it only if you want to edit it:
+
+```bash
+php artisan vendor:publish --tag="media-routes"
+```
+
+The publish tags the package exposes are `media-migrations`, `media-config` and `media-routes`.
 
 ## Configuration
 
@@ -87,7 +95,7 @@ return [
     'temporary_url_default_lifetime' => 5,
 
     'stream' => [
-        'enabled' => true,
+        'enabled' => (bool) env('MEDIA_STREAM_ENABLED', true),
         'route_prefix' => 'media',
         'middleware' => ['web'],
     ],
@@ -146,13 +154,13 @@ Every key:
 | `variant.background` | `string` | `#ffffff` | — | Flatten color when a transparent image is converted to JPEG. |
 | `url_fallback_to_original` | `bool` | `false` | — | When `getUrl()` is asked for an un-generated variant: throw (`false`) or return the original's URL (`true`). |
 | `temporary_url_default_lifetime` | `int` | `5` | — | Default lifetime (minutes) for temporary/signed URLs when no expiry is passed. |
-| `stream.enabled` | `bool` | `true` | — | Register the signed streaming route. |
+| `stream.enabled` | `bool` | `true` | `MEDIA_STREAM_ENABLED` | Register the signed streaming route. |
 | `stream.route_prefix` | `string` | `media` | — | URI prefix for the streaming route. |
 | `stream.middleware` | `list<string>` | `['web']` | — | Middleware stack for the streaming route. Laravel's `signed` is always appended. |
 | `path_generator` | `class-string<PathGenerator>` | `DefaultPathGenerator::class` | — | Directory layout for a media's files. |
 | `file_namer` | `class-string<FileNamer>` | `DefaultFileNamer::class` | — | Original and variant file naming. |
 | `default_visibility` | `string` | `public` | — | `public` or `private` for new media when a bucket/add doesn't set it. |
-| `max_file_size` | `?int` | `268435456` | — | Package-level max upload size in bytes. `null` = no limit. |
+| `max_file_size` | `?int` | `268435456` | — | Default max upload size (bytes) in the validation rules derived from a bucket. A bucket's own `maxFileSize()` overrides it; `null` = no limit. |
 | `remote.headers` | `array<string,string>` | `[]` | — | Extra HTTP headers for `addMediaFromUrl()`. |
 | `remote.timeout` | `int` | `30` | — | HTTP timeout (seconds) for `addMediaFromUrl()`. |
 | `deduplicate` | `bool` | `true` | — | Reuse storage for identical bytes on the same `(disk, visibility)`. |
@@ -591,8 +599,10 @@ public function rules(): array
 }
 ```
 
-Only declared constraints emit a rule (`max` is expressed in kilobytes); an undeclared or unknown
-bucket yields `['file']`.
+Only declared constraints emit a rule (`max` is expressed in kilobytes). The **size cap** is the
+exception: a bucket that declares no `maxFileSize()` falls back to the package-level
+`media.max_file_size`, so an undeclared or unknown bucket yields `['file', 'max:262144']` on the
+shipped default. Set `media.max_file_size` to `null` to opt out of a package-level limit.
 
 ## Replace in place
 
