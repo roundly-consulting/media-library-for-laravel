@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary;
 
-use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
 use RoundlyConsulting\MediaLibrary\Commands\ClearCommand;
 use RoundlyConsulting\MediaLibrary\Commands\PruneDraftsCommand;
@@ -14,23 +13,42 @@ use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
-use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Observers\MediaObserver;
 use RoundlyConsulting\MediaLibrary\Support\CdnUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
+use RoundlyConsulting\PackageToolkit\Package;
+use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
-final class MediaLibraryServiceProvider extends ServiceProvider
+final class MediaLibraryServiceProvider extends PackageServiceProvider
 {
+    public function configurePackage(Package $package): void
+    {
+        $package
+            ->name('media')
+            ->hasConfigFile()
+            ->hasMigrations()
+            ->hasRoutes('media.php', enabledVia: 'media.stream.enabled')
+            ->hasCommands([
+                RegenerateVariantsCommand::class,
+                CleanCommand::class,
+                ClearCommand::class,
+                PruneDraftsCommand::class,
+                VerifyCommand::class,
+            ])
+            ->contributesToAbout(fn (): array => $this->aboutData());
+    }
+
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/media.php', 'media');
+        parent::register();
 
         $this->app->singleton(MediaManager::class);
         $this->app->alias(MediaManager::class, 'media');
 
-        $this->bindFromConfig(PathGenerator::class, 'media.path_generator');
-        $this->bindFromConfig(FileNamer::class, 'media.file_namer');
+        $this->bindSeamFromConfig(PathGenerator::class, 'media.path_generator');
+        $this->bindSeamFromConfig(FileNamer::class, 'media.file_namer');
         $this->bindUrlGenerator();
 
         // Resolved lazily: media without variants never needs an image extension, and the
@@ -40,37 +58,88 @@ final class MediaLibraryServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        parent::boot();
 
-        if (config('media.stream.enabled') === true) {
-            $this->loadRoutesFrom(__DIR__.'/../routes/media.php');
-        }
-
-        $this->registerObserver();
-
-        if ($this->app->runningInConsole()) {
-            $this->commands([
-                RegenerateVariantsCommand::class,
-                CleanCommand::class,
-                ClearCommand::class,
-                PruneDraftsCommand::class,
-                VerifyCommand::class,
-            ]);
-
-            $this->publishes([
-                __DIR__.'/../config/media.php' => config_path('media.php'),
-            ], 'media-config');
-
-            $this->publishes([
-                __DIR__.'/../database/migrations' => database_path('migrations'),
-            ], 'media-migrations');
-        }
+        MediaModel::class()::observe(MediaObserver::class);
     }
 
     /**
+     * The `php artisan about` payload. Secret-safe: disks, CDN hosts and route prefixes are a
+     * host's infrastructure topology, so they are reported by presence and count, never by value.
+     *
+     * @return array<string, string>
+     */
+    private function aboutData(): array
+    {
+        return [
+            'Media model' => class_basename(MediaModel::class()),
+            'Table' => is_string($table = config('media.table_name')) ? $table : 'media',
+            'Default disk' => config('media.disk') === 'public' ? 'DEFAULT' : 'CUSTOM',
+            'Variants disk' => is_string(config('media.variants_disk')) ? 'CUSTOM' : 'SAME AS ORIGINAL',
+            'Image driver' => is_string($driver = config('media.image_driver')) ? $driver : 'imagick',
+            'Queue variants' => config('media.queue_variants_by_default') === true
+                ? 'ON (connection '.(is_string(config('media.queue_connection')) ? 'SET' : 'DEFAULT').', queue '.(is_string(config('media.queue_name')) ? 'SET' : 'DEFAULT').')'
+                : 'OFF',
+            'Deduplication' => config('media.deduplicate') === true ? 'ON ('.$this->checksumAlgorithm().')' : 'OFF',
+            'Verify checksum on read' => config('media.verify_checksum_on_read') === true ? 'ON' : 'OFF',
+            'Placeholders' => $this->placeholderSummary(),
+            'Responsive widths' => count($this->configArray('media.responsive.widths')).' width(s)',
+            'Streaming route' => config('media.stream.enabled') === true
+                ? 'ON (prefix '.(is_string(config('media.stream.route_prefix')) ? 'SET' : 'DEFAULT').', '.count($this->configArray('media.stream.middleware')).' middleware)'
+                : 'OFF',
+            'CDN' => config('media.cdn.enabled') === true
+                ? 'ON (base URL '.(is_string(config('media.cdn.base_url')) && config('media.cdn.base_url') !== '' ? 'SET' : 'MISSING').', '.$this->cdnDiskSummary().')'
+                : 'OFF',
+            'Max file size' => is_numeric($max = config('media.max_file_size')) ? (int) $max.' B' : 'NO LIMIT',
+            'Draft TTL' => (is_numeric($ttl = config('media.drafts.ttl')) ? (int) $ttl : 1440).' min',
+        ];
+    }
+
+    private function checksumAlgorithm(): string
+    {
+        $algorithm = config('media.checksum_algorithm');
+
+        return is_string($algorithm) && $algorithm !== '' ? $algorithm : 'sha256';
+    }
+
+    private function placeholderSummary(): string
+    {
+        $enabled = [];
+
+        if (config('media.placeholders.thumbhash') !== false) {
+            $enabled[] = 'thumbhash';
+        }
+
+        if (config('media.placeholders.blurhash') !== false) {
+            $enabled[] = 'blurhash';
+        }
+
+        return $enabled === [] ? 'OFF' : implode(', ', $enabled);
+    }
+
+    private function cdnDiskSummary(): string
+    {
+        $disks = $this->configArray('media.cdn.disks');
+
+        return $disks === [] ? 'all public disks' : count($disks).' disk(s)';
+    }
+
+    /** @return array<array-key, mixed> */
+    private function configArray(string $key): array
+    {
+        $value = config($key);
+
+        return is_array($value) ? $value : [];
+    }
+
+    /**
+     * Bind one of the package's pluggable seams to the class named at `$configKey`. Unlike the
+     * toolkit's `bindFromConfig()`, an unset/non-string value binds nothing — the seam's default
+     * is expressed in the shipped config, not here.
+     *
      * @param  class-string  $abstract
      */
-    private function bindFromConfig(string $abstract, string $configKey): void
+    private function bindSeamFromConfig(string $abstract, string $configKey): void
     {
         $concrete = config($configKey);
 
@@ -103,19 +172,5 @@ final class MediaLibraryServiceProvider extends ServiceProvider
         }
 
         $this->app->bind(UrlGenerator::class, DefaultUrlGenerator::class);
-    }
-
-    private function registerObserver(): void
-    {
-        $model = config('media.media_model');
-
-        if (! is_string($model)) {
-            return;
-        }
-
-        if ($model === Media::class || is_subclass_of($model, Media::class)) {
-            /** @var class-string<Media> $model */
-            $model::observe(MediaObserver::class);
-        }
     }
 }

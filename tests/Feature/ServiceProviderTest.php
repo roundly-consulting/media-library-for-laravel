@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Routing\RouteCollection;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
@@ -12,6 +15,7 @@ use RoundlyConsulting\MediaLibrary\Support\CdnUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultFileNamer;
 use RoundlyConsulting\MediaLibrary\Support\DefaultPathGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
+use RoundlyConsulting\MediaLibrary\Support\MediaUrlResolver;
 
 it('merges the package config', function (): void {
     expect(config('media.disk'))->toBe('public')
@@ -54,4 +58,33 @@ it('binds the seam contracts from config', function (): void {
 it('binds the media manager as a singleton', function (): void {
     expect(app(MediaManager::class))->toBe(app('media'))
         ->and(app(MediaManager::class))->toBeInstanceOf(MediaManager::class);
+});
+
+it('registers the streaming route when it is enabled', function (): void {
+    expect(Route::has(MediaUrlResolver::ROUTE_NAME))->toBeTrue();
+});
+
+it('skips the streaming route when it is disabled', function (): void {
+    config()->set('media.stream.enabled', false);
+
+    $routes = new RouteCollection;
+    app('router')->setRoutes($routes);
+
+    $provider = new MediaLibraryServiceProvider($this->app);
+    $provider->register();
+    $provider->boot();
+
+    expect($routes->getByName(MediaUrlResolver::ROUTE_NAME))->toBeNull();
+});
+
+it('keeps the published config destination and tag', function (): void {
+    $paths = ServiceProvider::pathsToPublish(MediaLibraryServiceProvider::class, 'media-config');
+
+    expect(array_values($paths))->toBe([config_path('media.php')]);
+});
+
+it('keeps the published route destination and tag', function (): void {
+    $paths = ServiceProvider::pathsToPublish(MediaLibraryServiceProvider::class, 'media-routes');
+
+    expect(array_values($paths))->toBe([base_path('routes/media.php')]);
 });
