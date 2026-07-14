@@ -50,8 +50,9 @@ return [
     // Default visibility for new media when a bucket/add doesn't set it.
     'default_visibility' => 'public',  // 'public' | 'private'
 
-    // Validation defaults applied by addMediaFromRequest/UploadedFile.
-    'max_file_size' => 1024 * 1024 * 256, // bytes; null => no package-level limit
+    // Package-level default max file size, in bytes, used by the validation rules derived from a
+    // bucket. A bucket's own ->maxFileSize() overrides it; null => no package-level limit.
+    'max_file_size' => 1024 * 1024 * 256,
 
     // addMediaFromUrl: extra request headers / timeout for the Http client.
     'remote' => [

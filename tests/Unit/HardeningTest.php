@@ -44,11 +44,12 @@ it('exposes the buckets a variant targets', function (): void {
     expect($variant->buckets())->toBe(['avatar', 'gallery']);
 });
 
-it('falls back to a bare file rule when the model is not media-aware', function (): void {
-    // A class that doesn't implement HasMedia resolves to a null bucket, which yields the default.
+it('falls back to the package level rules when the model is not media-aware', function (): void {
+    // A class that doesn't implement HasMedia resolves to a null bucket, which yields the default
+    // file rule plus the package-level size cap.
     $rules = app(BucketValidationRules::class)->forModel(PlainModel::class, 'avatar');
 
-    expect($rules)->toBe(['file']);
+    expect($rules)->toBe(['file', 'max:262144']);
 });
 
 it('returns no model-level variants for a non-model media owner', function (): void {

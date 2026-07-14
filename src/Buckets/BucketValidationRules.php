@@ -11,7 +11,8 @@ use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
  * (accepted mime types, max file size, min/max dimensions) — a single source of truth so the
  * rules follow whenever the bucket definition changes (§6.8).
  *
- * Only constraints the bucket actually declares emit a rule; undeclared constraints are omitted.
+ * Only constraints the bucket actually declares emit a rule; undeclared constraints are omitted —
+ * except the size cap, which falls back to the package-level `media.max_file_size` default.
  */
 final class BucketValidationRules
 {
@@ -35,21 +36,23 @@ final class BucketValidationRules
     {
         $rules = ['file'];
 
-        if ($bucket === null) {
-            return $rules;
-        }
-
-        $mimeTypes = $bucket->getAcceptedMimeTypes();
+        $mimeTypes = $bucket?->getAcceptedMimeTypes() ?? [];
 
         if ($mimeTypes !== []) {
             $rules[] = 'mimetypes:'.implode(',', $mimeTypes);
         }
 
-        $maxFileSize = $bucket->getMaxFileSize();
+        // The bucket's own limit wins; otherwise the package-level `media.max_file_size` default
+        // applies, which is what makes that shipped key mean anything.
+        $maxFileSize = $bucket?->getMaxFileSize() ?? $this->configuredMaxFileSize();
 
         if ($maxFileSize !== null) {
             // Laravel's `max` rule on files is expressed in kilobytes.
             $rules[] = 'max:'.(int) ceil($maxFileSize / 1024);
+        }
+
+        if ($bucket === null) {
+            return $rules;
         }
 
         $dimensions = $this->dimensionRule($bucket);
@@ -59,6 +62,14 @@ final class BucketValidationRules
         }
 
         return $rules;
+    }
+
+    /** The package-level default max file size in bytes, or null when no limit is configured. */
+    private function configuredMaxFileSize(): ?int
+    {
+        $configured = config('media.max_file_size');
+
+        return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : null;
     }
 
     private function dimensionRule(MediaBucket $bucket): ?string
