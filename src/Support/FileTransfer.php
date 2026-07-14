@@ -45,9 +45,8 @@ final class FileTransfer
 
         $written = Storage::disk($toDisk)->writeStream($toPath, $stream, ['visibility' => $visibility]);
 
-        if (is_resource($stream)) {
-            fclose($stream);
-        }
+        // writeStream() consumes the handle but never closes it, so this stream is always still open.
+        fclose($stream);
 
         return $written;
     }
