@@ -1,7 +1,9 @@
+version: 2
+# composer resolves the private roundly-consulting/* VCS deps; Dependabot has
+# org access granted to those repos so the composer job can build the graph.
 # Please see the documentation for all configuration options:
 # https://help.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
 
-version: 2
 updates:
 
   - package-ecosystem: "composer"
