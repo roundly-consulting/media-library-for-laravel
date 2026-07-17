@@ -96,6 +96,16 @@ ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\MediaLibrary', [
 ArchPresets::modelsResolveThroughSeam(__DIR__.'/../../src', 'Support');
 
 /**
+ * The morph-key seam, guarded. Media's polymorphic owner is stored as explicit
+ * `model_type`/`model_id` string columns — a string `model_id` that stores an integer, uuid or
+ * ulid owner without coercion — so it never emits a raw `$table->morphs()` and passes the pin
+ * on real scanned files. The guard is prospective: it reds the day a future migration reaches
+ * for a raw morph and reopens the hardcoded-bigint hole a uuid/ulid host cannot survive on
+ * Postgres (SQLite type affinity hides it).
+ */
+ArchPresets::morphColumnsUseTheSeam(__DIR__.'/../../database/migrations');
+
+/**
  * The Dependency Policy as a test. No `alsoAllow`: media's `require` ships only
  * php/ext-fileinfo/illuminate/roundly, and the workflow installs test tooling with `--dev`,
  * so nothing legitimately lands in `require` that this must forgive. If this goes red the
