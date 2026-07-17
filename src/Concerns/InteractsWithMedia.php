@@ -16,6 +16,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Relations\MediaMorphMany;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantCollection;
@@ -36,11 +37,32 @@ trait InteractsWithMedia
 
     private ?VariantRegistrar $variantRegistrar = null;
 
-    /** @return MorphMany<Media, $this> */
+    /**
+     * The owner's media, newest ordering applied.
+     *
+     * This builds `MediaMorphMany` rather than calling `$this->morphMany()` so the string-morph
+     * key handling stays scoped to this relation: overriding the host's `newMorphMany()` would
+     * silently change every other morphMany it declares. See `MediaMorphMany` for why Eloquent's
+     * integer-key eager-load optimisation is wrong for `media.model_id`.
+     *
+     * @return MorphMany<Media, $this>
+     */
     public function media(): MorphMany
     {
+        $instance = $this->newRelatedInstance(MediaModel::class());
 
-        return $this->morphMany(MediaModel::class(), 'model')->ordered();
+        // The `model` morph's columns, as `getMorphs('model', null, null)` would derive them
+        // (`[$type ?: $name.'_type', $id ?: $name.'_id']`) and as the migration declares them.
+        /** @var MediaMorphMany<Media, $this> $relation */
+        $relation = new MediaMorphMany(
+            $instance->newQuery(),
+            $this,
+            $instance->qualifyColumn('model_type'),
+            $instance->qualifyColumn('model_id'),
+            $this->getKeyName(),
+        );
+
+        return $relation->ordered();
     }
 
     public function registerMediaBuckets(): void
