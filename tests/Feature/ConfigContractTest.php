@@ -2,134 +2,47 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Arr;
-
 /**
- * The config contract, pinned in BOTH directions.
+ * The config contract, pinned in both directions — and media is the package that proves why
+ * the REVERSE direction has to exist.
  *
- * A key the code reads but the package never ships is unreachable — the feature is configurable
- * only in theory. A key the package ships but no code reads is a documented feature that silently
- * does nothing. Both have shipped in this fleet; neither can ship again from here.
+ * Bug #27 was here: `media.max_file_size` was shipped, documented as the package-level upload
+ * cap, and **nothing read it** — an upload endpoint with no size limit, under a fully green
+ * suite. Only the reverse direction ("every shipped leaf is read") can see that class of bug;
+ * a forward-only contract is satisfied by a config file that ships anything at all.
+ *
+ * The near-miss is worth recording too: a first attempt at #27 used a regex over the raw file
+ * text, which was satisfied by a *docblock mention* of the key and stayed green with the fix
+ * reverted. This expectation scrapes source **tokens**, so a comment is a comment and never a
+ * read.
+ *
+ * Forward is shops #18's shape: a key the code reads that the file never ships (there, the whole
+ * store-credit feature read `shops.payments.*` against a file shipping `payment.*`).
  */
+it('ships exactly the config keys it reads', function (): void {
+    expect(__DIR__.'/../../config/media.php')->toSatisfyConfigContract(__DIR__.'/../../src', [
+        // Several real reads never appear as a `config(` token:
+        //  - `media.media_model` goes through ModelResolver::for(...) — the seam that drives
+        //    the whole model swap;
+        //  - `media.path_generator` / `media.file_namer` / `media.url_generator` are bound by
+        //    the provider's bindSeamFromConfig(...)/bindUrlGenerator();
+        //  - `media.stream.middleware` and `media.responsive.widths` are read through the
+        //    provider's configArray(...) helper.
+        // The prefix is what makes those literals visible to the scraper.
+        'extraReadPrefixes' => ['media.'],
 
-/**
- * Every `media.*` config key the source actually reads (config(), ModelResolver::for(), binders).
- *
- * Scraped from real string *tokens*, never the raw text: a key named only in a comment or docblock
- * is not a read, and counting it would let this test pass over a key nothing executes.
- *
- * @return list<string>
- */
-function mediaConfigKeysRead(): array
-{
-    $keys = [];
+        // NOT a config key: `media.php` is the ROUTES filename, from the provider's
+        // `->hasRoutes('media.php', enabledVia: 'media.stream.enabled')`. The prefix scraper
+        // above matches any string literal under `media.`, and a routes file named after its
+        // package collides with that. Listed here rather than dropping the prefix, because the
+        // prefix is what makes the four seam keys visible. This entry is rot-proof: if the
+        // literal ever disappears, a stale entry that silences nothing is itself a failure.
+        'allowUnshipped' => ['media.php'],
 
-    foreach (mediaSourceFiles() as $file) {
-        foreach (token_get_all((string) file_get_contents($file)) as $token) {
-            if (! is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING) {
-                continue;
-            }
-
-            $literal = trim($token[1], "'\"");
-
-            // `media.php` is the route/config *filename* declared on the package, not a config key.
-            if (preg_match('/^media\.[a-z0-9_.]+$/i', $literal) === 1 && ! str_ends_with($literal, '.php')) {
-                $keys[] = $literal;
-            }
-        }
-    }
-
-    sort($keys);
-
-    return array_values(array_unique($keys));
-}
-
-/** @return list<string> */
-function mediaSourceFiles(): array
-{
-    $files = [];
-
-    foreach (['/../../src', '/../../routes', '/../../database'] as $directory) {
-        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__.$directory));
-
-        foreach ($iterator as $file) {
-            if ($file instanceof SplFileInfo && $file->getExtension() === 'php') {
-                $files[] = $file->getPathname();
-            }
-        }
-    }
-
-    return $files;
-}
-
-/**
- * Every leaf key in the shipped config file. Descends into associative sections and stops at
- * scalars and list values (`stream.middleware`, `responsive.widths`, …).
- *
- * @param  array<array-key, mixed>  $config
- * @return list<string>
- */
-function mediaConfigLeaves(array $config, string $prefix = 'media'): array
-{
-    $leaves = [];
-
-    foreach ($config as $key => $value) {
-        $path = $prefix.'.'.$key;
-
-        if (is_array($value) && $value !== [] && ! array_is_list($value)) {
-            $leaves = [...$leaves, ...mediaConfigLeaves($value, $path)];
-
-            continue;
-        }
-
-        $leaves[] = $path;
-    }
-
-    return $leaves;
-}
-
-it('ships every config key the source reads', function (): void {
-    $shipped = require __DIR__.'/../../config/media.php';
-    $read = mediaConfigKeysRead();
-
-    expect($read)->not->toBeEmpty();
-
-    $missing = array_values(array_filter(
-        $read,
-        fn (string $key): bool => ! Arr::has(['media' => $shipped], $key),
-    ));
-
-    expect($missing)->toBe([]);
-});
-
-it('reads every config key it ships', function (): void {
-    $shipped = require __DIR__.'/../../config/media.php';
-    $read = mediaConfigKeysRead();
-
-    $leaves = mediaConfigLeaves($shipped);
-
-    expect($leaves)->not->toBeEmpty();
-
-    $dead = array_values(array_filter(
-        $leaves,
-        fn (string $key): bool => ! in_array($key, $read, true),
-    ));
-
-    expect($dead)->toBe([]);
-});
-
-it('resolves the media model only through the model seam', function (): void {
-    $offenders = [];
-
-    foreach (mediaSourceFiles() as $file) {
-        if (str_ends_with($file, 'Support/MediaModel.php')) {
-            continue;
-        }
-
-        if (str_contains((string) file_get_contents($file), 'media.media_model')) {
-            $offenders[] = basename($file);
-        }
-    }
-
-    expect($offenders)->toBe([]);
+        // Deliberately NO `excludeFromReverse` for the provider. The testing README's own
+        // example excludes the service provider on the grounds that "a render is not a read" —
+        // but MediaLibraryServiceProvider::aboutData() calls config('media.…') for real, and
+        // for several keys (table_name, image_driver, drafts.ttl) it is a genuine reader.
+        // Excluding it would discard readers and weaken the direction that caught #27.
+    ]);
 });

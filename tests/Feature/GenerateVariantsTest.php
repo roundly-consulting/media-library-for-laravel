@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Actions\GenerateVariantsAction;
@@ -147,11 +148,23 @@ it('processes queued variants when the job runs', function (): void {
     Storage::disk('hot')->assertExists($media->getPath('display'));
 });
 
+/**
+ * `->throwsNoExceptions()` marks a test `@doesNotPerformAssertions`, and the base case's
+ * `LoadsProviderMigrations` calls `Assert::assertDirectoryExists()` for each literal migration
+ * dir — one real assertion on every test in the suite. That combination reports this case as
+ * RISKY and makes `pest --ci` exit 2. Asserting the outcome directly is the honest fix, and it
+ * is strictly stronger: "ignores" should mean the job does nothing, not merely that it survives.
+ */
 it('ignores a job for missing media', function (): void {
+    Event::fake();
+
     $job = new GenerateVariantsJob(999999, ['display']);
 
     $job->handle(app(GenerateVariantsAction::class));
-})->throwsNoExceptions();
+
+    Event::assertNotDispatched(VariantsHaveBeenGenerated::class);
+    Event::assertNotDispatched(VariantHasBeenGenerated::class);
+});
 
 it('applies model-level variants targeted at a bucket', function (): void {
     $user = userWithVariants();

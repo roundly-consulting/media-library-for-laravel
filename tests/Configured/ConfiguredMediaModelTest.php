@@ -95,3 +95,33 @@ it('throws when the configured model is not a model class', function (): void {
 
     expect(fn (): string => MediaModel::class())->toThrow(InvalidConfigurationException::class);
 });
+
+/**
+ * The model-swap proof (S), replacing the `instanceof` half of the checks above.
+ *
+ * `instanceof` passes for a row created as the packaged class — which never fires the host's
+ * model events (permissions #31). In media that IS the bug: the observer that cleans files off
+ * disk is registered on the configured model, so a row created as the packaged Media leaves its
+ * file orphaned forever (#28) while every `instanceof` assertion stays green.
+ *
+ * `toHonourModelSwap` fails fast if the before-boot swap is missing, then asserts every returned
+ * model's CONCRETE class, and — because CustomMedia uses `CountsCreations` — that a `created`
+ * event actually landed on the host's class. That is the only proof the row was made *as* the
+ * host's model rather than merely being castable to it.
+ */
+it('honours a host media model through every add and read flow', function (): void {
+    expect('media.media_model')->toHonourModelSwap(CustomMedia::class, function (): array {
+        $user = TestUser::query()->create(['name' => 'Ada']);
+
+        // The real flows a host uses: an owned add, a global add, and the reads back.
+        $owned = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
+        $global = MediaFacade::add(__DIR__.'/../files/wide.png')->toBucket('brand');
+
+        return [
+            $owned,
+            $global,
+            $user->getFirstMedia('gallery'),
+            ...MediaFacade::bucket('brand')->get()->all(),
+        ];
+    });
+});
