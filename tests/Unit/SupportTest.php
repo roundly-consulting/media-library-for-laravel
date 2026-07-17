@@ -24,7 +24,7 @@ it('names original and variant files', function (): void {
 });
 
 it('resolves a public url through the default generator', function (): void {
-    $media = Media::factory()->create(['uuid' => 'u9', 'file_name' => 'a.jpg', 'disk' => 'public']);
+    $media = Media::factory()->create(['uuid' => mediaUuid('u9'), 'file_name' => 'a.jpg', 'disk' => 'public']);
 
-    expect((new DefaultUrlGenerator(new MediaUrlResolver))->getUrl($media))->toContain('u9/a.jpg');
+    expect((new DefaultUrlGenerator(new MediaUrlResolver))->getUrl($media))->toContain(mediaUuid('u9').'/a.jpg');
 });

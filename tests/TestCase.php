@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Tests;
 
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
-use Orchestra\Testbench\TestCase as Orchestra;
+use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\MediaLibraryServiceProvider;
+use RoundlyConsulting\Testing\PackageTestCase;
 
-abstract class TestCase extends Orchestra
+abstract class TestCase extends PackageTestCase
 {
     protected function setUp(): void
     {
@@ -39,47 +37,53 @@ abstract class TestCase extends Orchestra
         );
     }
 
-    /** @return array<int, class-string> */
-    protected function getPackageProviders($app): array
+    /**
+     * Every provider media-library hard-requires, in registration order. A host auto-discovers
+     * these; the suite must list them or the test environment is a fiction.
+     *
+     * @return list<class-string<ServiceProvider>>
+     */
+    protected function packageProviders(): array
     {
         return [MediaLibraryServiceProvider::class];
     }
 
-    /** @param  Application  $app */
-    protected function defineEnvironment($app): void
+    /**
+     * The media migration, named by provider class (never by filename), plus the host-owned
+     * fixture tables the media owners live in.
+     *
+     * @return list<class-string<ServiceProvider>|string>
+     */
+    protected function migrationSources(): array
     {
-        $app['config']->set('app.key', 'base64:'.base64_encode(random_bytes(32)));
-
-        $app['config']->set('filesystems.disks.cold', [
-            'driver' => 'local',
-            'root' => storage_path('framework/testing/disks/cold'),
-        ]);
-
-        $app['config']->set('filesystems.disks.hot', [
-            'driver' => 'local',
-            'root' => storage_path('framework/testing/disks/hot'),
-        ]);
-
-        $app['config']->set('filesystems.disks.secure', [
-            'driver' => 'local',
-            'root' => storage_path('framework/testing/disks/secure'),
-        ]);
+        return [
+            MediaLibraryServiceProvider::class,
+            __DIR__.'/database/migrations',
+        ];
     }
 
-    protected function defineDatabaseMigrations(): void
+    /**
+     * @return array<string, mixed>
+     */
+    protected function configBeforeBoot(): array
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        return [
+            'app.key' => 'base64:'.base64_encode(random_bytes(32)),
 
-        Schema::create('test_users', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->timestamps();
-        });
+            'filesystems.disks.cold' => [
+                'driver' => 'local',
+                'root' => storage_path('framework/testing/disks/cold'),
+            ],
 
-        Schema::create('uuid_test_users', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
-            $table->string('name')->nullable();
-            $table->timestamps();
-        });
+            'filesystems.disks.hot' => [
+                'driver' => 'local',
+                'root' => storage_path('framework/testing/disks/hot'),
+            ],
+
+            'filesystems.disks.secure' => [
+                'driver' => 'local',
+                'root' => storage_path('framework/testing/disks/secure'),
+            ],
+        ];
     }
 }

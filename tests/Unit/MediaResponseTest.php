@@ -6,8 +6,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 
-function storedMedia(string $uuid = 'resp-uuid', string $body = 'file-body', ?string $mime = 'text/plain'): Media
+function storedMedia(string $label = 'resp-uuid', string $body = 'file-body', ?string $mime = 'text/plain'): Media
 {
+    $uuid = mediaUuid($label);
+
     Storage::disk('public')->put("{$uuid}/file.txt", $body);
 
     return Media::factory()->create([

@@ -12,15 +12,15 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
 
 it('exposes a public url for public media', function (): void {
     $media = Media::factory()->create([
-        'uuid' => 'u1', 'file_name' => 'a.jpg', 'disk' => 'public', 'visibility' => 'public',
+        'uuid' => mediaUuid('u1'), 'file_name' => 'a.jpg', 'disk' => 'public', 'visibility' => 'public',
     ]);
 
-    expect($media->getUrl())->toContain('u1/a.jpg');
+    expect($media->getUrl())->toContain(mediaUuid('u1').'/a.jpg');
 });
 
 it('throws when asking a private media for its public url', function (): void {
     $media = Media::factory()->create([
-        'uuid' => 'p1', 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
+        'uuid' => mediaUuid('p1'), 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
     ]);
 
     $media->getUrl();
@@ -36,24 +36,24 @@ it('returns a native presigned temporary url when the disk supports it', functio
     $this->makeDiskPresignCapable('s3');
 
     $media = Media::factory()->create([
-        'uuid' => 's3media', 'file_name' => 'a.jpg', 'disk' => 's3', 'visibility' => 'private',
+        'uuid' => mediaUuid('s3media'), 'file_name' => 'a.jpg', 'disk' => 's3', 'visibility' => 'private',
     ]);
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5));
 
     expect($url)->toContain('s3.example.com')
-        ->and($url)->toContain('s3media/a.jpg')
+        ->and($url)->toContain(mediaUuid('s3media').'/a.jpg')
         ->and($url)->toContain('expires=');
 });
 
 it('falls back to a signed route url for local private media', function (): void {
     $media = Media::factory()->create([
-        'uuid' => 'localmedia', 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
+        'uuid' => mediaUuid('localmedia'), 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
     ]);
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5));
 
-    expect($url)->toContain('/media/localmedia')
+    expect($url)->toContain('/media/'.mediaUuid('localmedia'))
         ->and($url)->toContain('signature=');
 
     $request = Request::create($url);
@@ -62,20 +62,20 @@ it('falls back to a signed route url for local private media', function (): void
 
 it('signs the requested variant into the temporary url', function (): void {
     $media = Media::factory()->create([
-        'uuid' => 'varmedia', 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
+        'uuid' => mediaUuid('varmedia'), 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
         'generated_variants' => ['thumb' => true],
     ]);
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5), 'thumb');
 
-    expect($url)->toContain('/media/varmedia/thumb');
+    expect($url)->toContain('/media/'.mediaUuid('varmedia').'/thumb');
 });
 
 it('throws when neither presign nor the signed route is available', function (): void {
     config()->set('media.stream.enabled', false);
 
     $media = Media::factory()->create([
-        'uuid' => 'nostream', 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
+        'uuid' => mediaUuid('nostream'), 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
     ]);
 
     $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5));
@@ -83,7 +83,7 @@ it('throws when neither presign nor the signed route is available', function ():
 
 it('throws for an un-generated variant url by default', function (): void {
     $media = Media::factory()->create([
-        'uuid' => 'ung', 'file_name' => 'a.jpg', 'disk' => 'public', 'visibility' => 'public',
+        'uuid' => mediaUuid('ung'), 'file_name' => 'a.jpg', 'disk' => 'public', 'visibility' => 'public',
     ]);
 
     $media->getUrl('thumb');
@@ -93,21 +93,21 @@ it('falls back to the original url for an un-generated variant when configured',
     config()->set('media.url_fallback_to_original', true);
 
     $media = Media::factory()->create([
-        'uuid' => 'ung2', 'file_name' => 'a.jpg', 'disk' => 'public', 'visibility' => 'public',
+        'uuid' => mediaUuid('ung2'), 'file_name' => 'a.jpg', 'disk' => 'public', 'visibility' => 'public',
     ]);
 
-    expect($media->getUrl('thumb'))->toContain('ung2/a.jpg');
+    expect($media->getUrl('thumb'))->toContain(mediaUuid('ung2').'/a.jpg');
 });
 
 it('falls back to the original temporary url for an un-generated variant when configured', function (): void {
     config()->set('media.url_fallback_to_original', true);
 
     $media = Media::factory()->create([
-        'uuid' => 'ung3', 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
+        'uuid' => mediaUuid('ung3'), 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
     ]);
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5), 'thumb');
 
-    expect($url)->toContain('/media/ung3')
+    expect($url)->toContain('/media/'.mediaUuid('ung3'))
         ->and($url)->not->toContain('/thumb');
 });

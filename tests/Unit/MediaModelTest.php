@@ -18,9 +18,9 @@ it('uses the configured table name', function (): void {
 });
 
 it('builds the original path from the uuid', function (): void {
-    $media = Media::factory()->create(['uuid' => 'abc-uuid', 'file_name' => 'photo.jpg']);
+    $media = Media::factory()->create(['uuid' => mediaUuid('abc-uuid'), 'file_name' => 'photo.jpg']);
 
-    expect($media->getPath())->toBe('abc-uuid/photo.jpg');
+    expect($media->getPath())->toBe(mediaUuid('abc-uuid').'/photo.jpg');
 });
 
 it('reports whether it is an image', function (): void {
@@ -47,14 +47,15 @@ it('tracks generated variants', function (): void {
 });
 
 it('exposes a public url', function (): void {
-    $media = Media::factory()->create(['uuid' => 'u1', 'file_name' => 'a.jpg', 'disk' => 'public']);
+    $media = Media::factory()->create(['uuid' => mediaUuid('u1'), 'file_name' => 'a.jpg', 'disk' => 'public']);
 
-    expect($media->getUrl())->toContain('u1/a.jpg');
+    expect($media->getUrl())->toContain(mediaUuid('u1').'/a.jpg');
 });
 
 it('reads a stream from storage', function (): void {
-    Storage::disk('public')->put('u2/a.txt', 'streamy');
-    $media = Media::factory()->create(['uuid' => 'u2', 'file_name' => 'a.txt', 'disk' => 'public']);
+    $uuid = mediaUuid('u2');
+    Storage::disk('public')->put("{$uuid}/a.txt", 'streamy');
+    $media = Media::factory()->create(['uuid' => $uuid, 'file_name' => 'a.txt', 'disk' => 'public']);
 
     $stream = $media->getStream();
     expect(stream_get_contents($stream))->toBe('streamy');
@@ -105,11 +106,12 @@ it('relates back to its owning model', function (): void {
 });
 
 it('soft deletes without removing files', function (): void {
-    Storage::disk('public')->put('s1/a.jpg', 'x');
-    $media = Media::factory()->create(['uuid' => 's1', 'file_name' => 'a.jpg', 'disk' => 'public']);
+    $uuid = mediaUuid('s1');
+    Storage::disk('public')->put("{$uuid}/a.jpg", 'x');
+    $media = Media::factory()->create(['uuid' => $uuid, 'file_name' => 'a.jpg', 'disk' => 'public']);
 
     $media->delete();
 
     expect($media->trashed())->toBeTrue();
-    Storage::disk('public')->assertExists('s1/a.jpg');
+    Storage::disk('public')->assertExists("{$uuid}/a.jpg");
 });

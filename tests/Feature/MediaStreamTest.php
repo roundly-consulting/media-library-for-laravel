@@ -7,8 +7,10 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 
-function privateMediaOnDisk(string $disk = 'secure', string $uuid = 'stream-uuid'): Media
+function privateMediaOnDisk(string $disk = 'secure', string $label = 'stream-uuid'): Media
 {
+    $uuid = mediaUuid($label);
+
     Storage::disk($disk)->put("{$uuid}/file.txt", 'streamed-body');
 
     return Media::factory()->create([
@@ -33,13 +35,13 @@ it('streams the file for a valid signature', function (): void {
 });
 
 it('rejects a request with no signature', function (): void {
-    $media = privateMediaOnDisk(uuid: 'nosig-uuid');
+    $media = privateMediaOnDisk(label: 'nosig-uuid');
 
     $this->get("/media/{$media->uuid}")->assertForbidden();
 });
 
 it('rejects a tampered signature', function (): void {
-    $media = privateMediaOnDisk(uuid: 'tamper-uuid');
+    $media = privateMediaOnDisk(label: 'tamper-uuid');
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5));
 
@@ -47,7 +49,7 @@ it('rejects a tampered signature', function (): void {
 });
 
 it('rejects an expired signature', function (): void {
-    $media = privateMediaOnDisk(uuid: 'expired-uuid');
+    $media = privateMediaOnDisk(label: 'expired-uuid');
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5));
 
@@ -59,7 +61,7 @@ it('rejects an expired signature', function (): void {
 });
 
 it('serves an inline response by default and an attachment for download=1', function (): void {
-    $media = privateMediaOnDisk(uuid: 'disp-uuid');
+    $media = privateMediaOnDisk(label: 'disp-uuid');
 
     $inline = $this->get($media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5)));
     $inline->assertOk();
@@ -78,7 +80,7 @@ it('serves an inline response by default and an attachment for download=1', func
 });
 
 it('honours range requests', function (): void {
-    $media = privateMediaOnDisk(uuid: 'range-uuid');
+    $media = privateMediaOnDisk(label: 'range-uuid');
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5));
 
@@ -90,14 +92,14 @@ it('honours range requests', function (): void {
 
 it('returns 404 when the underlying file is missing', function (): void {
     $media = Media::factory()->create([
-        'uuid' => 'gone-uuid', 'file_name' => 'file.txt', 'disk' => 'secure', 'visibility' => 'private',
+        'uuid' => mediaUuid('gone-uuid'), 'file_name' => 'file.txt', 'disk' => 'secure', 'visibility' => 'private',
     ]);
 
     $this->get($media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5)))->assertNotFound();
 });
 
 it('returns 404 for a signed but un-generated variant', function (): void {
-    $media = privateMediaOnDisk(uuid: 'novariant-uuid');
+    $media = privateMediaOnDisk(label: 'novariant-uuid');
 
     // Mint a signed URL for a variant that was never generated (the generator would refuse to,
     // so we sign the route directly) and assert the controller refuses to serve it.
@@ -110,9 +112,10 @@ it('returns 404 for a signed but un-generated variant', function (): void {
 });
 
 it('streams a public media through the route too', function (): void {
-    Storage::disk('secure')->put('pub-uuid/file.txt', 'open-body');
+    $uuid = mediaUuid('pub-uuid');
+    Storage::disk('secure')->put("{$uuid}/file.txt", 'open-body');
     $media = Media::factory()->create([
-        'uuid' => 'pub-uuid', 'file_name' => 'file.txt', 'disk' => 'secure', 'visibility' => 'public',
+        'uuid' => $uuid, 'file_name' => 'file.txt', 'disk' => 'secure', 'visibility' => 'public',
         'mime_type' => 'text/plain',
     ]);
 
