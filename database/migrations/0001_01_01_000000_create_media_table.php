@@ -37,8 +37,8 @@ return new class extends Migration
             $table->unsignedBigInteger('size');
             $table->string('visibility')->default('public');
 
-            $table->json('custom_properties')->nullable();
-            $table->json('generated_variants')->nullable();
+            $table->jsonb('custom_properties')->nullable();
+            $table->jsonb('generated_variants')->nullable();
 
             // Content hash — dedup key + integrity baseline (later phases).
             $table->string('checksum', 64)->nullable();
@@ -48,7 +48,7 @@ return new class extends Migration
             $table->unsignedInteger('height')->nullable();
 
             // LQIP placeholders — { thumbhash, blurhash } (later phases).
-            $table->json('placeholders')->nullable();
+            $table->jsonb('placeholders')->nullable();
 
             // Draft / temporary media (later phases).
             $table->string('draft_token')->nullable()->index();
