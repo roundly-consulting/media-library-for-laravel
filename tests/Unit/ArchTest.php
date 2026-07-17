@@ -16,14 +16,24 @@ ArchPresets::strictTypes('RoundlyConsulting\MediaLibrary');
  * Media shipped NO finality rule at all — the same gap jwt had, which is how a `final` on a
  * config-swappable model reached production there (bug #4). The exemptions are the
  * documented extension points.
+ *
+ * Through the `$ignoring` PARAMETER, not Pest's fluent `->ignoring()`: the parameter is
+ * rot-checked (a renamed class fails as stale instead of silently exempting nothing) and it
+ * recovers the prefix SHADOW — Pest matches exemptions by string prefix rather than class
+ * identity (pest-plugin-arch Blueprint.php:103), so an exemption silences every class whose
+ * FQCN starts with it. Measured here: **neither exemption shadows anything** (nothing else in
+ * `Models\` starts with `Media`, and no exception starts with `MediaLibraryException`). The
+ * package does hold four latent prefix pairs — `Variant` over `VariantCollection`/
+ * `VariantRegistrar`/`VariantResolver`, `PendingFileAdd` over `PendingFileAddState` — and all
+ * four are final, so the guard is prospective: it fires if one of those is ever both exempted
+ * and opened.
  */
-ArchPresets::finalByDefault('RoundlyConsulting\MediaLibrary')
-    ->ignoring([
-        // `media.media_model` invites a host to subclass this; pinned by the preset below.
-        Media::class,
-        // The base every media error extends, so a host can catch them uniformly.
-        MediaLibraryException::class,
-    ]);
+ArchPresets::finalByDefault('RoundlyConsulting\MediaLibrary', [
+    // `media.media_model` invites a host to subclass this; pinned by the preset below.
+    Media::class,
+    // The base every media error extends, so a host can catch them uniformly.
+    MediaLibraryException::class,
+]);
 
 /**
  * The counter-weight, and the fleet's 7×-shipped fatal: `final` on a config-swappable model
@@ -51,24 +61,30 @@ ArchPresets::swappableModelsAreNotFinal([
  *    a security primitive.
  *  - FileAdderFactory — decodes a base64 upload payload a host handed the package.
  *
- * The fourth is a closer call and is recorded rather than waved through: Media::verifyChecksum()
- * uses `hash_equals()` for a constant-time compare of the stored checksum against a re-hash.
- * That is a real primitive on the ban list, used correctly — but the preset's actual intent is
- * "route this through crypto-for-laravel", and media does not `require` crypto-for-laravel.
- * Adding that dependency is a cross-package decision, not a test-adoption one, so the call site
- * is exempted here and flagged rather than silently rewritten.
+ * ## The fourth exemption is GONE, and its removal is the point of this row
+ *
+ * `Media::class` was exempted for one call: `Media::verifyChecksum()`'s `hash_equals()`. That
+ * was flagged at the time as a closer call — a real primitive, used correctly, exempted rather
+ * than silently rewritten. The flag was right and the ban was wrong: `hash_equals` left
+ * CRYPTO_PRIMITIVES on 2026-07-17. It **is** PHP's constant-time compare rather than a local
+ * copy of one, it has no algorithm or key to centralize, and banning it pushed callers toward
+ * `$a === $b` — a timing leak that reads as a harmless simplification.
+ *
+ * So the exemption became dead weight, and dead weight here is expensive: `->ignoring()` is
+ * scoped to a CLASS, not a function, so exempting Media for its one correct `hash_equals` call
+ * blinded the package's central model to all **19** remaining primitives. Verified in-process
+ * before removing: Media.php calls none of the 19, so this costs nothing and restores that
+ * cover. A `hash()` dropped into Media now goes red; it did not before.
  *
  * Not exempt, deliberately: everything else. If media hand-rolls signing or key handling
- * anywhere outside these four, this still fires. `Support\Checksum` is left under the ban and
+ * anywhere outside these three, this still fires. `Support\Checksum` is left under the ban and
  * passes — `hash_file()` is not on the list.
  */
-ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\MediaLibrary')
-    ->ignoring([
-        'RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri',
-        'RoundlyConsulting\MediaLibrary\Placeholders\ThumbHashEncoder',
-        'RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory',
-        Media::class,
-    ]);
+ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\MediaLibrary', [
+    'RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri',
+    'RoundlyConsulting\MediaLibrary\Placeholders\ThumbHashEncoder',
+    'RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory',
+]);
 
 /**
  * `media.media_model` resolves through the MediaModel seam in Support. Adopted on the
