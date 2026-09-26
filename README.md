@@ -317,6 +317,9 @@ driver explicitly with `config('media.image_driver')` (`imagick` | `gd`). When n
 extension is installed and a variant is requested, a `VariantDriverUnavailable` exception is
 thrown.
 
+To use another engine, bind your own `RoundlyConsulting\MediaLibrary\Contracts\ImageDriver` in a
+service provider; variants and placeholders resolve the driver from the container.
+
 ### Sync vs. queued
 
 Variants are generated **synchronously** by default. Opt into the queue per variant

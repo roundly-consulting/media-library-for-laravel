@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
+use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
@@ -21,7 +22,6 @@ use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
-use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 use Throwable;
@@ -95,7 +95,7 @@ final class AddMediaAction
         }
 
         try {
-            $placeholders = $this->placeholders->forLocalImage($state->file->path, ImageDriverFactory::make());
+            $placeholders = $this->placeholders->forLocalImage($state->file->path, app(ImageDriver::class));
 
             if ($placeholders !== []) {
                 $media->placeholders = $placeholders;

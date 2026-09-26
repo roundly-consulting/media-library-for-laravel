@@ -13,7 +13,6 @@ use RoundlyConsulting\MediaLibrary\Events\VariantHasBeenGenerated;
 use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenGenerated;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
-use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 
 /**
@@ -38,7 +37,7 @@ final class GenerateVariantsAction
             return $media;
         }
 
-        $driver = ImageDriverFactory::make();
+        $driver = app(ImageDriver::class);
 
         $generated = [];
 

@@ -7,13 +7,13 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
+use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
-use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use Throwable;
 
 /**
@@ -94,7 +94,7 @@ final class ReplaceMediaAction
         }
 
         try {
-            $computed = $this->placeholders->forLocalImage($source->path, ImageDriverFactory::make());
+            $computed = $this->placeholders->forLocalImage($source->path, app(ImageDriver::class));
 
             if ($computed !== []) {
                 $media->placeholders = $computed;

@@ -23,3 +23,7 @@ Initial feature set:
 - A pluggable CDN URL generator with cache-busting.
 - Artisan commands: `media:regenerate`, `media:clean`, `media:clear`, `media:verify`, and
   `media:prune-drafts`.
+
+### Fixed
+
+- A host-bound `Contracts\ImageDriver` is now actually used for variants and placeholders.
