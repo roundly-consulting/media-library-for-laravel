@@ -317,6 +317,11 @@ driver explicitly with `config('media.image_driver')` (`imagick` | `gd`). When n
 extension is installed and a variant is requested, a `VariantDriverUnavailable` exception is
 thrown.
 
+Both drivers **auto-orient** photos: a phone picture stored sideways with an EXIF `Orientation`
+tag is turned upright before it is resized, so variants and placeholders come out the way the
+photo was taken, and no leftover flag makes a browser turn it again. The tag is read natively —
+`ext-exif` is not required.
+
 To use another engine, bind your own `RoundlyConsulting\MediaLibrary\Contracts\ImageDriver` in a
 service provider; variants and placeholders resolve the driver from the container.
 
@@ -355,7 +360,7 @@ vectors — no third-party dependency. Computation is synchronous and is skipped
 media.
 
 ```php
-$media->width;                 // e.g. 1920 (null for non-images)
+$media->width;                 // e.g. 1920 (null for non-images) — as displayed, after EXIF orientation
 $media->height;                // e.g. 1080
 
 $media->placeholder();         // ['thumbhash' => '1QcSHQ…', 'blurhash' => 'LPDI|4…']

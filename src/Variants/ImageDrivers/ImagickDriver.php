@@ -29,7 +29,7 @@ final class ImagickDriver implements ImageDriver
     {
         $this->image = new Imagick;
         $this->image->readImage($path);
-        $this->image->setImageOrientation(Imagick::ORIENTATION_TOPLEFT);
+        $this->autoOrient();
         $this->format = strtolower($this->image->getImageFormat());
 
         return $this;
@@ -145,6 +145,30 @@ final class ImagickDriver implements ImageDriver
     public function name(): string
     {
         return 'imagick';
+    }
+
+    /**
+     * Turn the pixels upright per the EXIF orientation a camera recorded, THEN mark the image
+     * upright. Clearing the flag without moving the pixels is what left phone photos sideways.
+     * Done by hand rather than `autoOrient()` so every imagick build behaves the same.
+     */
+    private function autoOrient(): void
+    {
+        $background = new ImagickPixel('none');
+
+        match ($this->image->getImageOrientation()) {
+            Imagick::ORIENTATION_TOPRIGHT => $this->image->flopImage(),
+            Imagick::ORIENTATION_BOTTOMRIGHT => $this->image->rotateImage($background, 180),
+            Imagick::ORIENTATION_BOTTOMLEFT => $this->image->flipImage(),
+            Imagick::ORIENTATION_LEFTTOP => $this->image->transposeImage(),
+            Imagick::ORIENTATION_RIGHTTOP => $this->image->rotateImage($background, 90),
+            Imagick::ORIENTATION_RIGHTBOTTOM => $this->image->transverseImage(),
+            Imagick::ORIENTATION_LEFTBOTTOM => $this->image->rotateImage($background, 270),
+            default => true,
+        };
+
+        $this->image->setImagePage(0, 0, 0, 0);
+        $this->image->setImageOrientation(Imagick::ORIENTATION_TOPLEFT);
     }
 
     private function cropFit(int $width, int $height): void

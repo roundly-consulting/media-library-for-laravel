@@ -26,4 +26,7 @@ Initial feature set:
 
 ### Fixed
 
+- Phone photos with an EXIF orientation no longer come out sideways: both image drivers turn the
+  pixels upright on load (all 8 orientations), `width`/`height` record the displayed size, and
+  the orientation flag is cleared only after the pixels are rotated.
 - A host-bound `Contracts\ImageDriver` is now actually used for variants and placeholders.

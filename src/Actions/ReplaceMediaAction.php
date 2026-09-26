@@ -14,6 +14,7 @@ use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
+use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use Throwable;
 
 /**
@@ -86,11 +87,11 @@ final class ReplaceMediaAction
             return;
         }
 
-        $dimensions = @getimagesize($source->path);
+        // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.
+        $dimensions = ExifOrientation::displayDimensions($source->path);
 
-        if (is_array($dimensions)) {
-            $media->width = $dimensions[0];
-            $media->height = $dimensions[1];
+        if ($dimensions !== null) {
+            [$media->width, $media->height] = $dimensions;
         }
 
         try {

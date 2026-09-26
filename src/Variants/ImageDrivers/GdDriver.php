@@ -8,6 +8,7 @@ use GdImage;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
+use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 
 /**
  * GD-backed fallback image driver, used when ext-imagick is unavailable.
@@ -35,6 +36,8 @@ final class GdDriver implements ImageDriver
         if ($image === false) {
             throw InvalidVariant::unknownName('original');
         }
+
+        $image = $this->orient($image, ExifOrientation::fromBytes($contents));
 
         imagealphablending($image, false);
         imagesavealpha($image, true);
@@ -174,6 +177,39 @@ final class GdDriver implements ImageDriver
     public function name(): string
     {
         return 'gd';
+    }
+
+    /**
+     * Turn a camera's stored pixels upright per its EXIF orientation. GD drops all metadata on
+     * decode, so the tag is read from the raw bytes and nothing is left to re-apply on output.
+     * `imagerotate()` angles run counter-clockwise: 270 is a quarter turn clockwise.
+     */
+    private function orient(GdImage $image, int $orientation): GdImage
+    {
+        return match ($orientation) {
+            2 => $this->flipped($image, IMG_FLIP_HORIZONTAL),
+            3 => $this->rotated($image, 180),
+            4 => $this->flipped($image, IMG_FLIP_VERTICAL),
+            5 => $this->flipped($this->rotated($image, 270), IMG_FLIP_HORIZONTAL),
+            6 => $this->rotated($image, 270),
+            7 => $this->flipped($this->rotated($image, 90), IMG_FLIP_HORIZONTAL),
+            8 => $this->rotated($image, 90),
+            default => $image,
+        };
+    }
+
+    private function rotated(GdImage $image, int $degrees): GdImage
+    {
+        $rotated = imagerotate($image, $degrees, 0);
+
+        return $rotated === false ? $image : $rotated;
+    }
+
+    private function flipped(GdImage $image, int $mode): GdImage
+    {
+        imageflip($image, $mode);
+
+        return $image;
     }
 
     private function containFit(int $width, int $height, int $sourceWidth, int $sourceHeight): void

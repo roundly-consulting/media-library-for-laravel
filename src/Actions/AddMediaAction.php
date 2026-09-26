@@ -11,8 +11,8 @@ use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
-use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
+use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
@@ -21,6 +21,7 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
+use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
@@ -87,11 +88,11 @@ final class AddMediaAction
             return;
         }
 
-        $dimensions = @getimagesize($state->file->path);
+        // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.
+        $dimensions = ExifOrientation::displayDimensions($state->file->path);
 
-        if (is_array($dimensions)) {
-            $media->width = $dimensions[0];
-            $media->height = $dimensions[1];
+        if ($dimensions !== null) {
+            [$media->width, $media->height] = $dimensions;
         }
 
         try {
