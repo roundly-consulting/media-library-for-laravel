@@ -51,6 +51,8 @@
         "roundly-consulting/package-toolkit-for-laravel": "@dev"
     },
     "require-dev": {
+        "guzzlehttp/guzzle": "^7.15.2",
+        "guzzlehttp/psr7": "^2.12.3",
         "larastan/larastan": "^3.0",
         "laravel/pint": "^1.18",
         "nunomaduro/collision": "^8.8|^9.0",
