@@ -1,32 +1,29 @@
 # Changelog
 
-All notable changes to `media-library-for-laravel` will be documented in this file.
+All notable changes to `media-library-for-laravel` are documented in this file. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-Initial feature set:
+Initial public release.
 
-- Model media buckets via the `HasMedia` contract and `InteractsWithMedia` trait, plus global
-  (ownerless) media through the `Media` facade — all in one polymorphic `media` table.
-- Multi-disk storage on any Laravel disk, with a configurable default and separate disks for
-  originals and variants.
-- Image variants (image-only) via `ext-imagick` with an `ext-gd` fallback; synchronous by default
-  with per-variant/bucket/config queue opt-in.
-- Private-media URLs through a single `temporaryUrl()` API that presigns natively or falls back to
-  a signed streaming route, plus inline/range streaming and downloads.
-- Move and copy media across disks, models, and buckets.
-- Content-addressable deduplication with refcount-guarded delete/move, checksum integrity
-  verification, and the `media:verify` command.
-- ThumbHash and Blurhash LQIP placeholders and responsive `srcset` helpers.
-- Draft (token-bound) media, bucket-derived validation rules, replace-in-place, and
-  attach-existing-by-reference.
-- A pluggable CDN URL generator with cache-busting.
-- Artisan commands: `media:regenerate`, `media:clean`, `media:clear`, `media:verify`, and
+### Added
+
+- Named media buckets on any Eloquent model (`HasMedia` + `InteractsWithMedia`) and global media
+  with no owner, all in one polymorphic `media` table.
+- Files from uploads, requests, URLs, disks, strings, base64 and streams through a fluent
+  `addMedia*()` → `toMediaBucket()` builder with names, custom properties and visibility.
+- Any Laravel disk, with separate disks for originals and variants.
+- Image variants (crop, resize, format, quality) generated with Imagick or GD, synchronously or
+  queued.
+- Private media: `temporaryUrl()` presigns natively or falls back to a signed streaming route.
+- ThumbHash and Blurhash placeholders plus responsive `srcset()` helpers.
+- Content-addressable deduplication and checksum integrity checks (`verifyIntegrity()`).
+- Draft media, validation rules derived from a bucket (`Media::rulesFor()`), replace-in-place,
+  attach-by-reference, and moving or copying media across disks, models and buckets.
+- CDN-ready public URLs through a pluggable URL generator with cache-busting.
+- Artisan commands: `media:regenerate`, `media:clean`, `media:clear`, `media:verify` and
   `media:prune-drafts`.
-
-### Fixed
-
-- Phone photos with an EXIF orientation no longer come out sideways: both image drivers turn the
-  pixels upright on load (all 8 orientations), `width`/`height` record the displayed size, and
-  the orientation flag is cleared only after the pixels are rotated.
-- A host-bound `Contracts\ImageDriver` is now actually used for variants and placeholders.
+- Lifecycle events such as `MediaHasBeenAdded`, `VariantsHaveBeenGenerated`, `MediaHasBeenMoved`
+  and `MediaHasBeenDeleted`.
