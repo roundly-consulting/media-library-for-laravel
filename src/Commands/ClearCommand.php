@@ -6,6 +6,7 @@ namespace RoundlyConsulting\MediaLibrary\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use RoundlyConsulting\MediaLibrary\Commands\Concerns\ResolvesModelArgument;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
@@ -21,6 +22,8 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
  */
 final class ClearCommand extends Command
 {
+    use ResolvesModelArgument;
+
     protected $signature = 'media:clear
         {model? : Optional morph alias/model class; omit or "" for global media}
         {bucket=default : The bucket to clear}';
@@ -48,13 +51,12 @@ final class ClearCommand extends Command
     /** @return Builder<Media> */
     private function query(string $bucket): Builder
     {
-
         $query = MediaModel::query()->where('bucket_name', $bucket);
 
         $model = $this->argument('model');
 
         if (is_string($model) && $model !== '') {
-            $query->where('model_type', $model);
+            $query->where('model_type', $this->morphTypeFor($model));
         } else {
             $query->whereNull('model_type')->whereNull('model_id');
         }

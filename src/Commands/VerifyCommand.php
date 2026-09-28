@@ -7,6 +7,7 @@ namespace RoundlyConsulting\MediaLibrary\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
+use RoundlyConsulting\MediaLibrary\Commands\Concerns\ResolvesModelArgument;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
@@ -23,6 +24,8 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
  */
 final class VerifyCommand extends Command
 {
+    use ResolvesModelArgument;
+
     protected $signature = 'media:verify
         {model? : Optional morph alias or model class to limit to}
         {--ids= : Comma-separated media ids to limit to}';
@@ -71,13 +74,12 @@ final class VerifyCommand extends Command
     /** @return Builder<Media> */
     private function query(): Builder
     {
-
         $query = MediaModel::query();
 
         $model = $this->argument('model');
 
         if (is_string($model) && $model !== '') {
-            $query->where('model_type', $model);
+            $query->where('model_type', $this->morphTypeFor($model));
         }
 
         $ids = $this->ids();
