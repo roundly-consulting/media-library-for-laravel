@@ -45,7 +45,7 @@ it('adds media from a local path', function (): void {
 
 it('adds media from a url', function (): void {
     Http::fake([
-        '*' => Http::response('binary-bytes', 200, ['Content-Type' => 'image/png']),
+        '*' => Http::response((string) file_get_contents(__DIR__.'/../files/pixel.png'), 200, ['Content-Type' => 'image/png']),
     ]);
 
     $user = makeUser();
@@ -142,8 +142,8 @@ it('rejects a mime type the bucket does not accept', function (): void {
 it('replaces previous media in a single file bucket', function (): void {
     $user = makeUser();
 
-    $first = $user->addMedia(UploadedFile::fake()->image('one.jpg'))->toMediaBucket('avatar');
-    $second = $user->addMedia(UploadedFile::fake()->image('two.jpg'))->toMediaBucket('avatar');
+    $first = $user->addMedia(UploadedFile::fake()->image('one.jpg', 10, 10))->toMediaBucket('avatar');
+    $second = $user->addMedia(UploadedFile::fake()->image('two.jpg', 20, 20))->toMediaBucket('avatar');
 
     expect($user->getMedia('avatar'))->toHaveCount(1)
         ->and($user->getFirstMedia('avatar')->id)->toBe($second->id);

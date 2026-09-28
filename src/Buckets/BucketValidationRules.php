@@ -42,9 +42,7 @@ final class BucketValidationRules
             $rules[] = 'mimetypes:'.implode(',', $mimeTypes);
         }
 
-        // The bucket's own limit wins; otherwise the package-level `media.max_file_size` default
-        // applies, which is what makes that shipped key mean anything.
-        $maxFileSize = $bucket?->getMaxFileSize() ?? $this->configuredMaxFileSize();
+        $maxFileSize = self::maxFileSizeFor($bucket);
 
         if ($maxFileSize !== null) {
             // Laravel's `max` rule on files is expressed in kilobytes.
@@ -64,9 +62,21 @@ final class BucketValidationRules
         return $rules;
     }
 
-    /** The package-level default max file size in bytes, or null when no limit is configured. */
-    private function configuredMaxFileSize(): ?int
+    /**
+     * The size cap, in bytes, a file entering `$bucket` must respect: the bucket's own
+     * `maxFileSize()`, else the package-level `media.max_file_size`; null when neither sets one.
+     * The same figure feeds the derived `max:` rule and the add-time check, so they never disagree.
+     *
+     * @internal
+     */
+    public static function maxFileSizeFor(?MediaBucket $bucket): ?int
     {
+        $own = $bucket?->getMaxFileSize();
+
+        if ($own !== null) {
+            return $own;
+        }
+
         $configured = config('media.max_file_size');
 
         return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : null;

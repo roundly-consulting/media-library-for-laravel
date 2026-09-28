@@ -139,6 +139,9 @@ arch('src uses only allowed namespaces')
         'Illuminate',
         'Symfony\Component\HttpFoundation\StreamedResponse',
         'Symfony\Component\HttpKernel\Exception\NotFoundHttpException',
+        // Laravel's own mime/extension map (illuminate/http and filesystem are built on it).
+        'Symfony\Component\Mime\MimeTypes',
+        'ReflectionClass',
         'Carbon',
         'Closure',
         'DateTimeInterface',
