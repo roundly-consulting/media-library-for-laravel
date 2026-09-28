@@ -40,8 +40,9 @@ return new class extends Migration
             $table->jsonb('custom_properties')->nullable();
             $table->jsonb('generated_variants')->nullable();
 
-            // Content hash — dedup key + integrity baseline (later phases).
-            $table->string('checksum', 64)->nullable();
+            // Content hash — dedup key + integrity baseline. 128 characters holds the longest
+            // allowed digest (a 512-bit SHA-2/SHA-3, see media.checksum_algorithm).
+            $table->string('checksum', 128)->nullable();
 
             // Image pixel dimensions, extracted on add for images (later phases).
             $table->unsignedInteger('width')->nullable();
