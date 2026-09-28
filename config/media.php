@@ -37,9 +37,9 @@ return [
     'temporary_url_default_lifetime' => 5,
 
     // Signed streaming route (private media on disks without native temporaryUrl()).
-    // Cast to a strict boolean: the route is registered unless this is exactly `false`.
+    // Parsed as a boolean ('false'/'0'/'off'/'no' disable it); an unparseable value keeps it on.
     'stream' => [
-        'enabled' => (bool) env('MEDIA_STREAM_ENABLED', true),
+        'enabled' => filter_var(env('MEDIA_STREAM_ENABLED', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
         'route_prefix' => 'media',
         'middleware' => ['web'],   // 'signed' is always added by the package
     ],
@@ -51,8 +51,9 @@ return [
     // Default visibility for new media when a bucket/add doesn't set it.
     'default_visibility' => 'public',  // 'public' | 'private'
 
-    // Package-level default max file size, in bytes, used by the validation rules derived from a
-    // bucket. A bucket's own ->maxFileSize() overrides it; null => no package-level limit.
+    // Package-level max file size, in bytes: enforced on every add (and remote download) and
+    // emitted by the validation rules derived from a bucket. A bucket's own ->maxFileSize()
+    // overrides it; null => no package-level limit.
     'max_file_size' => 1024 * 1024 * 256,
 
     // addMediaFromUrl: extra request headers / timeout for the Http client.
@@ -63,7 +64,7 @@ return [
 
     // Content-addressable dedup + integrity (§7.1/§7.2).
     'deduplicate' => true,         // reuse storage for identical (disk, visibility, bytes)
-    'checksum_algorithm' => 'sha256',
+    'checksum_algorithm' => 'sha256',          // sha256|sha384|sha512|sha512/256|sha3-256|sha3-384|sha3-512
     'verify_checksum_on_read' => false,        // re-hash on stream; throws ChecksumMismatch on drift
 
     // LQIP placeholders (§6.5) — computed on add for images.

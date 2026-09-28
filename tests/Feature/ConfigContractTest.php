@@ -46,3 +46,25 @@ it('ships exactly the config keys it reads', function (): void {
         // Excluding it would discard readers and weaken the direction that caught #27.
     ]);
 });
+
+it('reads MEDIA_STREAM_ENABLED as a boolean', function (string $value, bool $expected): void {
+    putenv("MEDIA_STREAM_ENABLED={$value}");
+
+    try {
+        $config = require __DIR__.'/../../config/media.php';
+
+        expect($config['stream']['enabled'])->toBe($expected);
+    } finally {
+        putenv('MEDIA_STREAM_ENABLED');
+    }
+})->with([
+    ['false', false],
+    ['0', false],
+    ['off', false],
+    ['no', false],
+    ['true', true],
+    ['1', true],
+    ['on', true],
+    ['yes', true],
+    ['not-a-boolean', true],
+]);
