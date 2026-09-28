@@ -23,6 +23,11 @@ Initial public release.
 - Draft media, validation rules derived from a bucket (`MediaLibrary::rulesFor()`), replace-in-place,
   attach-by-reference, and moving or copying media across disks, models and buckets.
 - CDN-ready public URLs through a pluggable URL generator with cache-busting.
+- Upload safety: mime types sniffed from the bytes, stored names reduced to one safe path segment
+  with an extension that cannot lie about active content, `http(s)`-only and size-capped
+  `addFromUrl()`, and a streaming route that serves active content as a sandboxed attachment.
+- Bucket rules (mime allowlist, size cap, image dimensions, single-file) enforced on every way
+  media enters a bucket — add, draft bind, attach, move, copy and replace.
 - Artisan commands: `media:regenerate`, `media:clean`, `media:clear`, `media:verify` and
   `media:prune-drafts`.
 - Lifecycle events such as `MediaHasBeenAdded`, `VariantsHaveBeenGenerated`, `MediaHasBeenMoved`

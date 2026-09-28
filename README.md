@@ -106,7 +106,7 @@ return [
     'temporary_url_default_lifetime' => 5,
 
     'stream' => [
-        'enabled' => (bool) env('MEDIA_STREAM_ENABLED', true),
+        'enabled' => filter_var(env('MEDIA_STREAM_ENABLED', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
         'route_prefix' => 'media',
         'middleware' => ['web'],
     ],
@@ -165,17 +165,17 @@ Every key:
 | `variant.background` | `string` | `#ffffff` | — | Flatten color when a transparent image is converted to JPEG. |
 | `url_fallback_to_original` | `bool` | `false` | — | When `getUrl()` is asked for an un-generated variant: throw (`false`) or return the original's URL (`true`). |
 | `temporary_url_default_lifetime` | `int` | `5` | — | Default lifetime (minutes) for temporary/signed URLs when no expiry is passed. |
-| `stream.enabled` | `bool` | `true` | `MEDIA_STREAM_ENABLED` | Register the signed streaming route. |
+| `stream.enabled` | `bool` | `true` | `MEDIA_STREAM_ENABLED` | Register the signed streaming route. The env value is read as a boolean (`false`/`0`/`off`/`no` turn it off). |
 | `stream.route_prefix` | `string` | `media` | — | URI prefix for the streaming route. |
 | `stream.middleware` | `list<string>` | `['web']` | — | Middleware stack for the streaming route. Laravel's `signed` is always appended. |
 | `path_generator` | `class-string<PathGenerator>` | `DefaultPathGenerator::class` | — | Directory layout for a media's files. |
 | `file_namer` | `class-string<FileNamer>` | `DefaultFileNamer::class` | — | Original and variant file naming. |
 | `default_visibility` | `string` | `public` | — | `public` or `private` for new media when a bucket/add doesn't set it. |
-| `max_file_size` | `?int` | `268435456` | — | Default max upload size (bytes) in the validation rules derived from a bucket. A bucket's own `maxFileSize()` overrides it; `null` = no limit. |
+| `max_file_size` | `?int` | `268435456` | — | Package-level size cap (bytes): enforced on every add (and on a remote download) and emitted by the derived validation rules. A bucket's own `maxFileSize()` overrides it; `null` = no limit. |
 | `remote.headers` | `array<string,string>` | `[]` | — | Extra HTTP headers for `addMediaFromUrl()`. |
 | `remote.timeout` | `int` | `30` | — | HTTP timeout (seconds) for `addMediaFromUrl()`. |
 | `deduplicate` | `bool` | `true` | — | Reuse storage for identical bytes on the same `(disk, visibility)`. |
-| `checksum_algorithm` | `string` | `sha256` | — | Hash algorithm for the content checksum (dedup + integrity baseline). |
+| `checksum_algorithm` | `string` | `sha256` | — | Hash for the content checksum (dedup key + integrity baseline). One of `sha256`, `sha384`, `sha512`, `sha512/256`, `sha3-256`, `sha3-384`, `sha3-512`; anything else (md5, sha1, crc32…) throws `InvalidConfigurationException`, because a collision-prone dedup key would let one upload take over another's file. |
 | `verify_checksum_on_read` | `bool` | `false` | — | Re-hash the original on stream/download; throws `ChecksumMismatch` on drift. |
 | `placeholders.thumbhash` | `bool` | `true` | — | Compute a ThumbHash LQIP on add for images. |
 | `placeholders.blurhash` | `bool` | `true` | — | Compute a Blurhash LQIP on add for images. |
@@ -258,20 +258,46 @@ $user->addMediaFromString($bytes);  $user->addMediaFromBase64($b64);  $user->add
 ```php
 $media = MediaLibrary::for($user)->add($request->file('avatar'))
     ->usingName('Profile photo')                 // display name
-    ->usingFileName('avatar.jpg')                // stored filename
+    ->usingFileName('avatar.jpg')                // stored filename (made safe, see below)
     ->withCustomProperties(['alt' => 'Jane'])    // arbitrary metadata
     ->withProperty('source', 'signup')           // one property at a time
     ->useDisk('cold')                            // override the bucket/config original disk
     ->storingVariantsOnDisk('hot')               // override the bucket/config variants disk
     ->withVisibility('private')                  // override the bucket default
-    ->preservingOriginal()                       // copy the source instead of moving it
     ->onQueue('media')                           // queue any queued variants on this queue
     ->asDraft()                                  // store as an unbound draft (see Drafts)
     ->toBucket('avatar');                        // terminal: returns Media (`toMediaBucket()` is the same)
 ```
 
-The terminal call validates the file (mime allowlist, size, existence) and throws a typed
-exception — `FileUnacceptableForBucket`, `FileDoesNotExist`, or `DiskDoesNotExist` — on failure.
+The terminal call validates the file before anything is written — the bucket's mime allowlist,
+its size cap (`maxFileSize()`, else `media.max_file_size`) and, for images, its
+`minDimensions()`/`maxDimensions()` — and throws a typed exception on failure:
+`FileUnacceptableForBucket`, `FileDoesNotExist`, `DiskDoesNotExist`, or `RemoteFileRejected`
+(`addFromUrl()` with a non-http(s) URL or a body over the size cap). These are the same limits
+`MediaLibrary::rulesFor()` derives, so a FormRequest and the package never disagree.
+
+A source is only ever read: a local path you add is never moved or deleted — the package always
+stores a copy.
+
+### Upload safety
+
+Every name and type that reaches storage is treated as untrusted:
+
+- **The mime type is sniffed from the bytes** (`ext-fileinfo`) — never taken from the client, a
+  remote `Content-Type` header, or a disk's stored metadata.
+- **The stored name is one safe path segment.** Directory parts, separators and control
+  characters are stripped from a client's name and from `usingFileName()`, so a name can never
+  reach outside the media's own directory.
+- **The extension cannot lie about active content.** An extension a web server may execute
+  (`.php`, `.phtml`, `.shtml`, …) is never stored, and one a browser runs (`.html`, `.svg`,
+  `.js`, …) is kept only when the bytes really are that type — a PNG uploaded as `x.html` is
+  stored as `x.png`. Truthful or harmless extensions (`IMG_0001.JPG`, `data.csv`) are kept.
+- **`addFromUrl()`** only fetches `http`/`https` URLs, honours `media.remote.timeout`, and refuses
+  a body over the size cap. It fetches whatever host it is given: when the URL comes from a user,
+  check the host against an allowlist first — otherwise it can be pointed at your internal
+  network (SSRF).
+- **A bucket without `acceptsMimeTypes()` accepts any type**, HTML and SVG included. Give every
+  bucket that holds user uploads an allowlist.
 
 ### Reading and deleting
 
@@ -305,7 +331,7 @@ $logo = MediaLibrary::add(storage_path('brand/logo.svg'))
     ->usingName('Primary logo')
     ->toBucket('brand');
 
-MediaLibrary::bucket('brand')->get();            // Builder<Media> over a global bucket
+MediaLibrary::bucket('brand')->get();            // Builder<Media> over a global bucket (unbound drafts excluded)
 MediaLibrary::find($logo->uuid);                 // any media by uuid
 MediaLibrary::clearBucket('brand');              // delete the global bucket; returns the count
 ```
@@ -318,11 +344,11 @@ MediaLibrary::clearBucket('brand');              // delete the global bucket; re
 | `draft($file)` | `PendingFileAdd` | Start a global draft add (see Drafts). |
 | `for($model)` | `ModelMedia` | Owner-scoped `add*`, `bindDraft()`, `attach()`, `get()`, `first()`, `has()`, `find()`, `url()`, `temporaryUrl()`, `clear()`, `delete()`. |
 | `attach($media, to: ?Model, bucket:)` | `Media` | Attach by reference (zero bytes copied); `to: null` = a global bucket. |
-| `bindDraft($token, to: $model, bucket:)` | `Media` | Bind a draft to an owner. |
+| `bindDraft($token, to: $model, bucket:)` | `Media` | Bind a draft to an owner — the bucket's rules, storage, single-file rule and variants apply (see Drafts). |
 | `move($media, to: ?Model, bucket:, disk:)` | `Media` | Re-home and/or move across disks. |
 | `moveToDisk($media, $disk)` / `moveVariantsToDisk($media, $disk)` | `Media` | Move the files, or only the variants, to another disk. |
 | `copy($media, to: ?Model, bucket:, disk:)` | `Media` | Duplicate into a new row (fresh uuid). |
-| `replace($media, $file)` | `Media` | New bytes, same id/uuid/URL. |
+| `replace($media, $file)` | `Media` | New bytes, same id/uuid (and URL, unless the old file is shared). |
 | `delete($media)` | `void` | Delete the row and its files (refcount-guarded). |
 | `variants($media)` | `MediaVariants` | `all()`, `generated()`, `missing()`, `regenerate(only:, force:)`. |
 | `regenerate($media, only: [], force: false)` | `list<string>` | Re-render variants; returns the names rendered. |
@@ -384,9 +410,10 @@ The fake writes nothing — no file on any disk, no row, no queued job, no event
 neither real disks nor `Storage::fake()`. It records every call, whether it came through the
 facade, an injected `MediaLibraryManager`, a `for()` handle, the `InteractsWithMedia` trait or a
 `Media` model method. Mutations still return something realistic: adds, attaches and copies return
-an unsaved `Media` with a fresh uuid, owner, bucket, disk and visibility; moves re-point the media
-in memory. Bucket acceptance rules still apply to adds, and an unknown or expired draft token still
-throws. Reads run against the database as usual.
+an unsaved `Media` with a fresh uuid, owner, bucket, disk, visibility and the same safe file name a
+real add stores; moves re-point the media in memory. Bucket acceptance rules (mime allowlist, size
+cap, image dimensions) still apply to adds and draft binds, and an unknown or expired draft token
+still throws. Reads run against the database as usual.
 
 | Assert | Passes when |
 |---|---|
@@ -441,8 +468,19 @@ $media = $user->getFirstMedia('photos');
 
 $media->getUrl('thumb');             // public URL of the generated variant
 $media->getPath('display');          // path on the variants disk
+$media->diskFor('thumb');            // the disk the variant was written to
 $media->hasGeneratedVariant('thumb');
 ```
+
+Each generated variant is recorded in `generated_variants` with the file name, format and disk it
+was actually written to — e.g. `['thumb' => ['file_name' => 'thumb.webp', 'format' => 'webp',
+'disk' => 'hot']]` — and every URL, path, stream, move, copy and delete resolves that record. A
+variant without its own `format()` inherits the original's (`IMG_0001.JPG` → `keepformat.jpg`;
+a format the drivers cannot write, such as `.bmp`, becomes `jpg`).
+
+`getUrl()` only knows the variants a bucket declares: asking for a name the bucket never defined
+(or one not generated yet) throws `InvalidVariant` unless `media.url_fallback_to_original` is on.
+Guard optional names with `hasGeneratedVariant()`.
 
 ### Drivers
 
@@ -470,7 +508,8 @@ or globally (`config('media.queue_variants_by_default')`). Queued variants are p
 
 The disk a variant is stored on is resolved by precedence: the variant's `storeOnDisk()`, then
 the add's `storingVariantsOnDisk()`, then the bucket's `storingVariantsOnDisk()`, then
-`config('media.variants_disk')`, falling back to the media's own disk.
+`config('media.variants_disk')`, falling back to the media's own disk. The disk each variant
+landed on is recorded, so `getUrl()`, `diskFor()` and deletes follow a per-variant `storeOnDisk()`.
 
 ### Events
 
@@ -602,8 +641,23 @@ When `config('media.stream.enabled')` is `true` (the default), the package regis
 route — `GET {prefix}/{media}/{variant?}` named `media.stream`. The `{media}` segment binds by
 **UUID**, the route runs the `config('media.stream.middleware')` stack **plus** Laravel's
 `signed` middleware, and the controller streams the file inline (range-aware) or as an
-attachment when `?download=1` is in the signed URL. Private media is reachable only through a
-valid signature (or a native presigned URL).
+attachment when `?download=1` is in the signed URL. The route never hands out anything without a
+valid signature (or, on presigning disks, a native presigned URL).
+
+Only types a browser renders without running anything — raster images, audio, video, PDF and plain
+text — are served inline. HTML, SVG, XML and every other type are sent as an **attachment**, and
+every response carries `X-Content-Type-Options: nosniff` and a sandboxing
+`Content-Security-Policy`, so a stored file can never run script on your application's origin. A
+variant is served with its own format's type. An unparseable or multi-range `Range` header is
+ignored (the whole file, `200`); a range past the end of the file gets `416`.
+
+> **Private media needs a private disk.** `->private()` / `withVisibility('private')` sets the
+> file's visibility — an S3 object ACL, or file mode `0600` on a local disk. It does not stop a web
+> server that serves the disk directly: the default `public` disk is symlinked under
+> `public/storage`, so a private file stored there can still be fetched from
+> `/storage/{uuid}/{file}` wherever the web server runs as the PHP user — and the uuid appears in
+> every signed URL. Keep private buckets on a disk the web server does not serve, such as Laravel's
+> `local` disk (`storage/app/private`) or a private S3 bucket: `->useDisk('local')->private()`.
 
 ### Streaming from your own controller
 
@@ -613,7 +667,7 @@ own without the package route:
 ```php
 public function show(Request $request, Media $media): StreamedResponse
 {
-    return $media->toResponse($request);            // inline, range-aware
+    return $media->toResponse($request);            // inline (safe types), range-aware
 }
 
 public function download(Media $media): StreamedResponse
@@ -664,6 +718,17 @@ $media->move($otherUser, 'gallery');
 $copy = $media->copy($otherUser, 'gallery', 'cold');
 ```
 
+Moving or copying into a different owner or bucket applies the target bucket: its acceptance
+rules are checked first (`FileUnacceptableForBucket`), its single-file rule is enforced, variants it
+does not define are dropped (a copy simply doesn't carry them) and the variants it defines but the
+media lacks are generated. Variants it also defines are kept — run
+`MediaLibrary::regenerate($media, force: true)` if the two buckets define them differently. A
+move keeps the media's disk and visibility unless you pass `disk:`.
+
+On the same disk a copy points at the source's stored original (zero bytes copied, refcount-guarded
+like a deduplicated upload); on another disk the original is copied. On the target disk the
+original keeps its relative path unless another row already uses that path there.
+
 Both fire events — `MediaHasBeenMoved` after a move, and `MediaHasBeenAdded` for the new row a
 copy creates.
 
@@ -680,13 +745,14 @@ On every add the package records a content **checksum** (`sha256` by default, vi
 visibility** share a single physical original — the bytes are written once and both rows resolve
 to the same file. A different disk or visibility is a genuinely different storage location, so it
 is stored separately by design. Variants are never shared: each media generates its own variants
-under its own UUID directory.
+under its own UUID directory. `attach()` and a same-disk `copy()` share an original the same way.
 
-Sharing is made safe by **refcount-guarded** delete and move: before a physical original is
-removed (or its source dropped on a cross-disk move), the package checks whether any other
-non-deleted row still references the same `(disk, visibility, checksum)`. The file is only deleted
-when the last referrer goes; a still-shared original is copied to the new disk on move and the
-source is left in place.
+Sharing is made safe by a **reference count on the stored file**: a physical original is removed —
+by a delete, a cross-disk move or a replace — only when no other row, **soft-deleted rows
+included**, still points at the same file (`disk` + `path`). So a soft delete followed by a
+restore stays lossless even while the file is shared. A still-shared original is never
+overwritten either: replacing one sharer writes its new bytes to a path of its own (see Replace
+in place). Directories are only tidied away once nothing another row points at is left in them.
 
 ```php
 // Verify a single media's stored original against its recorded checksum.
@@ -716,7 +782,15 @@ signed/presigned. A custom `media.url_generator` always takes precedence over th
 
 Upload a file **before** the owning model exists, then bind it once the model is saved. A draft is
 an ordinary media row with no owner, a generated `draft_token`, and a `draft_expires_at` TTL
-(default 24h, `media.drafts.ttl`). Variants and placeholders are still computed on add.
+(default 24h, `media.drafts.ttl`). Dimensions and placeholders are computed on upload.
+
+The bucket is only known when you bind, so binding is where it applies: its acceptance rules are
+checked (`FileUnacceptableForBucket` leaves the draft unbound), the original moves to the disk
+and visibility the bucket declares (a private bucket's draft stops being public), a
+`singleFile()` bucket's previous media is deleted, and the bucket's variants are generated.
+Unbound drafts are not global media: `MediaLibrary::bucket()`, `clearBucket()` and
+`media:clear ""` leave them alone, and the model's `$hidden` keeps `draft_token` out of
+serialized output (read it as a property, as below).
 
 ```php
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
@@ -768,9 +842,10 @@ shipped default. Set `media.max_file_size` to `null` to opt out of a package-lev
 
 ## Replace in place
 
-Swap a media's underlying original while keeping the **same `id`, `uuid`, and URL**, so existing
-links and embeds keep working. The checksum, size, mime type, extension, dimensions, and
-placeholders are recomputed and variants are regenerated.
+Swap a media's underlying original while keeping the **same `id` and `uuid`** — and the same URL,
+so existing links and embeds keep working. The new file must satisfy the owner's bucket (mime
+allowlist, size cap, dimensions) exactly like an add. The checksum, size, mime type, extension,
+dimensions, and placeholders are recomputed and variants are regenerated.
 
 ```php
 MediaLibrary::replace($media, $request->file('avatar'));   // same id/uuid/url, new bytes
@@ -778,7 +853,10 @@ $media->replace($request->file('avatar'));                 // the model shorthan
 ```
 
 Dedup is respected on both sides: the old original is only physically removed when no other row
-still references it, and the new bytes reuse an existing identical file when one exists.
+still references it, and the new bytes reuse an existing identical file when one exists. The URL
+changes in two cases only: when the new bytes deduplicate onto another stored file, and when the
+old original is shared with other rows (a deduplicated upload, an `attach()`, a same-disk
+`copy()`) — it is then left untouched for them and the new bytes go to a path of this media's own.
 `RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced` fires on completion.
 
 ## Attach existing media by reference
@@ -795,8 +873,9 @@ MediaLibrary::attach($logo, bucket: 'shared');             // …or into another
 $user->attachMedia($logo, 'avatar');                       // the trait shorthand
 ```
 
-The shared original stays refcount-guarded: it survives until the last referrer is deleted or moved
-away.
+The target bucket's acceptance and single-file rules apply. The shared original stays
+refcount-guarded: it survives until the last referrer is deleted or moved away, and replacing the
+source never changes the attached row's bytes.
 
 ## Artisan commands
 
@@ -806,11 +885,13 @@ away.
 php artisan media:regenerate
 php artisan media:regenerate "App\Models\User" --ids=1,2,3 --only=thumb,display --force
 
-# Remove orphaned variant files (files in a media's variants directory it no longer
-# references). Conservative: it never touches soft-deleted media.
+# Remove orphaned variant files (files in a media's own variants directory it no longer
+# records). Conservative: it never touches soft-deleted media, never removes a file any row
+# stores as its original, and skips a variants directory the layout shares between media.
 php artisan media:clean
 
 # Clear a bucket — delete every media (row + files) in it. Omit the model for global media.
+# A model class is mapped through your morph map, so the class name and its alias both work.
 php artisan media:clear "App\Models\User" avatar
 php artisan media:clear "" brand
 
@@ -836,7 +917,7 @@ Every lifecycle step dispatches an event under
 | `MediaHasBeenMoved` | Media is moved across disks, models, or buckets. |
 | `MediaHasBeenReplaced` | A media's original is replaced in place. |
 | `DraftMediaHasBeenBound` | A draft media is bound to its owning model. |
-| `MediaHasBeenDeleted` | A media is permanently deleted — `MediaLibrary::delete()` / `deleteWithFiles()`, once per media on a bucket clear, a draft prune or `media:clear`. |
+| `MediaHasBeenDeleted` | A media is permanently deleted — `MediaLibrary::delete()` / `deleteWithFiles()`, once per media on a bucket clear, a draft prune, `media:clear`, or when a `singleFile()` bucket's previous media is replaced. |
 
 ## Testing
 
