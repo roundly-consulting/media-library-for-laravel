@@ -10,15 +10,16 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Assert;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
-use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
-use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
+use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
@@ -33,8 +34,9 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
  * Mutations still return something realistic: adds, attaches and copies return an unsaved
  * {@see Media} carrying the attributes the real call would have stored (a fresh uuid, owner,
  * bucket, disk, visibility, name); moves re-point the given media in memory; a bound draft is
- * the recorded (or stored) draft, re-pointed in memory. Bucket acceptance rules still apply to
- * adds, and an unknown or expired draft token still throws. Reads (`get()`, `find()`,
+ * the recorded (or stored) draft, re-pointed in memory. Bucket acceptance rules (mime allowlist,
+ * size cap, image dimensions) still apply to adds and draft binds, and an unknown or expired
+ * draft token still throws. Reads (`get()`, `find()`,
  * `bucket()`, `rulesFor()`) run against the database as usual.
  *
  * @phpstan-type Call array{
@@ -55,19 +57,21 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function store(PendingFileAddState $state): Media
     {
-        $bucket = $state->owner instanceof HasMedia ? $state->owner->resolveMediaBucket($state->bucket) : null;
+        $guard = $this->container->make(BucketGuard::class);
+        $bucket = $guard->bucketFor($state->owner, $state->bucket);
+        $dimensions = str_starts_with((string) $state->file->mimeType, 'image/')
+            ? ExifOrientation::displayDimensions($state->file->path)
+            : null;
 
-        if ($bucket !== null && ! $bucket->accepts($state->file->mimeType)) {
-            throw FileUnacceptableForBucket::mimeType($state->file->mimeType ?? 'unknown', $state->bucket);
-        }
+        $guard->ensureAccepts($bucket, $state->bucket, $state->file->mimeType, $state->file->size, $dimensions[0] ?? null, $dimensions[1] ?? null);
 
         $media = MediaModel::new();
         $media->uuid = (string) Str::uuid();
         $media->bucket_name = $state->bucket;
         $media->name = $state->name ?? $state->file->name;
-        $media->file_name = $this->container->make(FileNamer::class)->originalFileName($state->fileName ?? $state->file->fileName);
+        $media->file_name = $this->fileName($state);
         $media->mime_type = $state->file->mimeType;
-        $media->extension = $state->file->extension;
+        $media->extension = FileNames::extensionOf($media->file_name);
         $media->size = $state->file->size;
         $media->disk = $state->diskOverride ?? $bucket?->getDisk() ?? $this->configString('media.disk', 'public');
         $media->visibility = $state->visibility ?? $bucket?->getVisibility() ?? $this->configString('media.default_visibility', 'public');
@@ -82,7 +86,7 @@ final class MediaLibraryFake extends MediaLibraryManager
             $media->model_id = $state->owner->getKey();
         }
 
-        if (! $state->preserveOriginal && $state->file->isTemporary && is_file($state->file->path)) {
+        if ($state->file->isTemporary && is_file($state->file->path)) {
             @unlink($state->file->path);
         }
 
@@ -109,6 +113,9 @@ final class MediaLibraryFake extends MediaLibraryManager
         if ($draft->draft_expires_at instanceof CarbonInterface && $draft->draft_expires_at->isPast()) {
             throw DraftMediaExpired::forToken($token);
         }
+
+        $guard = $this->container->make(BucketGuard::class);
+        $guard->ensureAcceptsMedia($guard->bucketFor($to, $bucket), $bucket, $draft);
 
         $this->rehome($draft, $to, $bucket);
         $draft->draft_token = null;
@@ -423,6 +430,16 @@ final class MediaLibraryFake extends MediaLibraryManager
     private function ownerKeyOf(Media $media): ?string
     {
         return $media->model_type === null ? null : $media->model_type.'#'.$media->model_id;
+    }
+
+    /** The same safe stored name the real add computes. */
+    private function fileName(PendingFileAddState $state): string
+    {
+        $requested = $state->fileName !== null
+            ? FileNames::conform(FileNames::sanitize($state->fileName), $state->file->mimeType)
+            : $state->file->fileName;
+
+        return FileNames::sanitize($this->container->make(FileNamer::class)->originalFileName($requested));
     }
 
     private function configString(string $key, string $default): string

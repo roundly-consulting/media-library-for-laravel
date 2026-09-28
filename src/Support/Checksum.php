@@ -12,12 +12,11 @@ use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
- * Content hashing plus the `(disk, visibility, checksum)` dedup/refcount helpers (§7.1/§7.2).
+ * Content hashing plus the `(disk, visibility, checksum)` dedup lookup (§7.1/§7.2).
  *
  * The hash is both the dedup key (identical bytes on the same disk+visibility share one physical
- * original) and the integrity baseline (re-hash on read/verify to detect drift). There is no
- * second table — the `media` row's `checksum` column and its composite index are the whole
- * mechanism.
+ * original) and the integrity baseline (re-hash on read/verify to detect drift). Whether a stored
+ * file is still shared is a question about the file, not the hash — see {@see StoredFiles}.
  */
 final class Checksum
 {
@@ -56,20 +55,6 @@ final class Checksum
         return $this->matching($disk, $visibility, $checksum, $exceptId)
             ->orderBy('id')
             ->first();
-    }
-
-    /**
-     * Whether any OTHER non-trashed row still references the same physical original — i.e. this
-     * media is NOT the last referrer, so the shared file must be left in place. The media's own
-     * row is always excluded.
-     */
-    public function isSharedByOthers(Media $media): bool
-    {
-        if (! is_string($media->checksum) || $media->checksum === '') {
-            return false;
-        }
-
-        return $this->matching($media->disk, $media->visibility, $media->checksum, (int) $media->getKey())->exists();
     }
 
     /**

@@ -269,7 +269,7 @@ it('moves only the variant files through the flat verb', function (): void {
 });
 
 it('replaces and deletes through the flat verbs', function (): void {
-    $media = MediaLibrary::add(__DIR__.'/../files/pixel.png')->preservingOriginal()->toBucket('brand');
+    $media = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
     $uuid = $media->uuid;
 
     MediaLibrary::replace($media, __DIR__.'/../files/wide.png');

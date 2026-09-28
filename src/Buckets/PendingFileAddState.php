@@ -26,7 +26,6 @@ final readonly class PendingFileAddState
         public ?string $diskOverride,
         public ?string $variantsDiskOverride,
         public ?string $visibility,
-        public bool $preserveOriginal,
         public array $customProperties,
         public ?string $queue = null,
         public bool $draft = false,

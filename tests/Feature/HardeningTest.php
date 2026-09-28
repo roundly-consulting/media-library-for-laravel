@@ -86,12 +86,12 @@ it('derives the extension from the content type when the url has no extension', 
         ->and($media->file_name)->toEndWith('.png');
 });
 
-it('does not delete a deduped old original living under another rows path on replace', function (): void {
+it('overwrites in place an original only it still points at, even under another row\'s uuid', function (): void {
     $user = hardeningUser();
 
     // B dedups onto A's stored path (A's uuid directory).
-    $a = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('gallery');
-    $b = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('gallery');
+    $a = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('gallery');
+    $b = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('gallery');
     $sharedPath = $a->getPath();
     expect($b->getPath())->toBe($sharedPath);
 
@@ -101,9 +101,11 @@ it('does not delete a deduped old original living under another rows path on rep
 
     $b->replace(__DIR__.'/../files/sunrise.png');
 
-    // The replace must leave the foreign-uuid path alone (it is not B's own to delete).
-    Storage::disk('public')->assertExists($sharedPath);
-    expect($b->getPath())->not->toBe($sharedPath);
+    // B is the only row left pointing at the file, so the new bytes replace it in place and B's
+    // URL does not change.
+    expect($b->getPath())->toBe($sharedPath)
+        ->and($b->fresh()?->verifyIntegrity())->toBeTrue();
+    expect(Storage::disk('public')->get($sharedPath))->toBe((string) file_get_contents(__DIR__.'/../files/sunrise.png'));
 });
 
 it('replaces media from an uploaded file and discards the temporary source', function (): void {

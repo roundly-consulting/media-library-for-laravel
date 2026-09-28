@@ -6,35 +6,51 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 
 /**
  * Attaches an existing (often global) media to a model by reference (§6.9): a NEW row is created
  * for the target owner/bucket that points at the same stored original on the same
  * `(disk, visibility)` — zero bytes copied, exactly the dedup "reference the canonical file" path.
  *
- * The shared original is refcount-guarded on later delete/move because the new row shares the
- * source's `checksum`. Variants are per-row, so the TARGET bucket's variants are generated fresh
- * for the new row rather than shared.
+ * The shared original is refcount-guarded on later delete/move/replace because the new row points
+ * at the same stored file. Variants are per-row, so the TARGET bucket's variants are generated
+ * fresh for the new row rather than shared. The target bucket's acceptance and single-file rules
+ * apply.
  */
 final class AttachMediaAction
 {
     public function __construct(
-        private readonly GenerateVariantsAction $generateVariants,
+        private readonly DispatchVariantsAction $dispatchVariants,
+        private readonly BucketGuard $guard,
+        private readonly StoredFiles $files,
     ) {}
 
+    /**
+     * @throws FileUnacceptableForBucket when the target bucket does not accept the media
+     */
     public function execute(Media $source, HasMedia|Model|null $toModel = null, string $bucket = 'default'): Media
     {
+        $targetBucket = $this->guard->bucketFor($toModel, $bucket);
+        $this->guard->ensureAcceptsMedia($targetBucket, $bucket, $source);
+
         $media = $this->referenceRow($source, $toModel, $bucket);
 
         $media->save();
 
+        if ($toModel instanceof Model) {
+            $this->guard->enforceSingleFile($targetBucket, $toModel, $bucket, $media);
+        }
+
         event(new MediaHasBeenAdded($media));
 
-        $this->generateVariants($media);
+        $this->dispatchVariants->execute($media, $media->isImage() ? $media->resolveVariants() : []);
 
         return $media;
     }
@@ -60,8 +76,10 @@ final class AttachMediaAction
         $media->draft_token = null;
         $media->draft_expires_at = null;
 
-        // path/disk/visibility/checksum/mime/size/width/height/placeholders carry over verbatim,
-        // so the new row references the canonical original with zero bytes copied.
+        // disk/visibility/checksum/mime/size/width/height/placeholders carry over verbatim, and the
+        // path is the source's resolved one (pinned on the source too, so the refcount sees it).
+        $this->files->pin($source);
+        $media->path = $source->getPath();
 
         if ($toModel instanceof Model) {
             $media->model_type = $toModel->getMorphClass();
@@ -71,22 +89,10 @@ final class AttachMediaAction
             $media->model_id = null;
         }
 
+        $media->setRelation('model', $toModel instanceof Model ? $toModel : null);
         $media->order_column = $this->nextOrderColumn($media);
 
         return $media;
-    }
-
-    private function generateVariants(Media $media): void
-    {
-        if (! $media->isImage()) {
-            return;
-        }
-
-        $variants = $media->resolveVariants();
-
-        if ($variants !== []) {
-            $this->generateVariants->execute($media, $variants);
-        }
     }
 
     private function nextOrderColumn(Media $media): int

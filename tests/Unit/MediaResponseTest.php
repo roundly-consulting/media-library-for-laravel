@@ -95,18 +95,26 @@ it('returns 416 for an unsatisfiable range', function (): void {
         ->and($response->headers->get('content-range'))->toBe('bytes */3');
 });
 
-it('returns 416 for a malformed range', function (): void {
+it('ignores a range in an unknown unit and serves the whole file', function (): void {
     $media = storedMedia('malformed-uuid', 'abc');
 
     $response = $media->toResponse(Request::create('/', server: ['HTTP_RANGE' => 'items=0-1']));
 
-    expect($response->getStatusCode())->toBe(416);
+    expect($response->getStatusCode())->toBe(200);
 });
 
-it('returns 416 for an empty range', function (): void {
+it('ignores an empty range and serves the whole file', function (): void {
     $media = storedMedia('empty-range-uuid', 'abc');
 
     $response = $media->toResponse(Request::create('/', server: ['HTTP_RANGE' => 'bytes=-']));
+
+    expect($response->getStatusCode())->toBe(200);
+});
+
+it('answers a zero-length suffix range with 416', function (): void {
+    $media = storedMedia('zero-suffix-uuid', 'abc');
+
+    $response = $media->toResponse(Request::create('/', server: ['HTTP_RANGE' => 'bytes=-0']));
 
     expect($response->getStatusCode())->toBe(416);
 });

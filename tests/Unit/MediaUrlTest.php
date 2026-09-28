@@ -63,7 +63,7 @@ it('falls back to a signed route url for local private media', function (): void
 it('signs the requested variant into the temporary url', function (): void {
     $media = Media::factory()->create([
         'uuid' => mediaUuid('varmedia'), 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
-        'generated_variants' => ['thumb' => true],
+        'generated_variants' => ['thumb' => ['file_name' => 'thumb.jpg', 'format' => 'jpg', 'disk' => 'secure']],
     ]);
 
     $url = $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5), 'thumb');

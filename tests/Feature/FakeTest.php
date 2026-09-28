@@ -283,3 +283,39 @@ it('ignores a queued variant job that names no variants', function (): void {
 
     $fake->assertNothingRegenerated();
 });
+
+it('enforces the bucket size and dimension rules on a faked add', function (): void {
+    $user = fakeUser();
+    $fake = MediaLibrary::fake();
+
+    expect(fn () => MediaLibrary::for($user)->add(__DIR__.'/../files/wide.png')->toBucket('documents'))
+        ->toThrow(FileUnacceptableForBucket::class, 'dimensions');
+
+    config()->set('media.max_file_size', 10);
+
+    expect(fn () => MediaLibrary::add(FAKE_PIXEL)->toBucket('brand'))
+        ->toThrow(FileUnacceptableForBucket::class, 'larger');
+
+    $fake->assertNothingAdded();
+});
+
+it('stores the same safe file name under the fake as for real', function (): void {
+    MediaLibrary::fake();
+
+    $media = MediaLibrary::addFromString('hello')->usingFileName('../../evil.html')->toBucket('brand');
+
+    expect($media->file_name)->toBe('evil.txt')
+        ->and($media->extension)->toBe('txt');
+});
+
+it('enforces the target bucket on a faked draft bind', function (): void {
+    $user = fakeUser();
+    $fake = MediaLibrary::fake();
+
+    $draft = MediaLibrary::draft(__DIR__.'/../files/note.txt')->toBucket('avatar');
+
+    expect(fn () => MediaLibrary::for($user)->bindDraft((string) $draft->draft_token, 'avatar'))
+        ->toThrow(FileUnacceptableForBucket::class);
+
+    $fake->assertNothingBound();
+});

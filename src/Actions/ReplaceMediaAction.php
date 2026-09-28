@@ -6,92 +6,113 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
-use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use Throwable;
 
 /**
- * Replaces a media's underlying original in place: the row keeps its `id`, `uuid`, and public URL,
- * so existing links/embeds keep working, while its bytes and all derived metadata (checksum, size,
- * mime, extension, dimensions, placeholders) are recomputed and its variants are regenerated.
+ * Replaces a media's underlying original: the row keeps its `id` and `uuid`, while its bytes and
+ * all derived metadata (checksum, size, mime, extension, dimensions, placeholders) are recomputed
+ * and its variants are regenerated. The new file must satisfy the owner's bucket (mime allowlist,
+ * size cap, dimensions), exactly like an add.
  *
- * Dedup is respected on both sides: releasing the OLD original is refcount-guarded (a still-shared
- * file is left for its other referrers), and writing the NEW original goes through the same
- * `(disk, visibility, checksum)` dedup as a fresh add (reuse the canonical file when it already
- * exists, otherwise write under this row's own uuid path).
+ * The URL stays the same whenever the old original was this row's alone: the new bytes overwrite
+ * it in place. An original other rows still point at (a deduplicated upload, an `attach()`, a
+ * same-disk `copy()`) is NEVER overwritten — that would silently change their media — so the new
+ * bytes go to a free path of this row's own and only this row's URL changes. New bytes identical
+ * to an already-stored file reuse that file (`media.deduplicate`). The old original is removed
+ * only when no other row, soft-deleted ones included, still points at it.
  */
 final class ReplaceMediaAction
 {
     public function __construct(
         private readonly FileAdderFactory $fileAdderFactory,
-        private readonly PathGenerator $pathGenerator,
         private readonly Checksum $checksum,
         private readonly PlaceholderGenerator $placeholders,
-        private readonly GenerateVariantsAction $generateVariants,
+        private readonly DispatchVariantsAction $dispatchVariants,
+        private readonly BucketGuard $guard,
+        private readonly StoredFiles $files,
     ) {}
 
+    /**
+     * @throws FileUnacceptableForBucket when the owner's bucket does not accept the new file
+     */
     public function execute(Media $media, string|UploadedFile $file): Media
     {
         $source = $this->fileAdderFactory->fromFile($file);
 
+        try {
+            return $this->replace($media, $source);
+        } finally {
+            $this->discardSource($source);
+        }
+    }
+
+    private function replace(Media $media, AddedFile $source): Media
+    {
+        $dimensions = str_starts_with((string) $source->mimeType, 'image/')
+            ? ExifOrientation::displayDimensions($source->path)
+            : null;
+
+        $this->guard->ensureAccepts(
+            $this->guard->bucketFor($media->model, $media->bucket_name),
+            $media->bucket_name,
+            $source->mimeType,
+            $source->size,
+            $dimensions[0] ?? null,
+            $dimensions[1] ?? null,
+        );
+
         $oldPath = $media->getPath();
         $oldDisk = $media->disk;
-        $oldSharedByOthers = $this->checksum->isSharedByOthers($media);
+        $oldShared = $this->files->originalIsShared($media);
 
-        $this->removeOwnVariants($media);
+        $this->files->deleteVariants($media);
 
         $newChecksum = $this->checksum->forLocalFile($source->path);
 
-        $this->refreshMetadata($media, $source, $newChecksum);
-        $this->captureImageMetadata($media, $source);
+        $this->refreshMetadata($media, $source, $newChecksum, $dimensions);
 
-        $this->writeOriginal($media, $source, $newChecksum);
+        $this->writeOriginal($media, $source, $newChecksum, $oldPath, $oldShared);
 
         $media->generated_variants = [];
         $media->save();
 
-        $this->releaseOldOriginal($oldDisk, $oldPath, $oldSharedByOthers, $media);
+        $this->releaseOldOriginal($oldDisk, $oldPath, $oldShared, $media);
 
-        $this->discardSource($source);
-
-        $this->regenerateVariants($media);
+        $this->dispatchVariants->execute($media, $media->isImage() ? $media->resolveVariants() : []);
 
         event(new MediaHasBeenReplaced($media));
 
         return $media;
     }
 
-    private function refreshMetadata(Media $media, AddedFile $source, ?string $checksum): void
+    /**
+     * @param  array{0: int, 1: int}|null  $dimensions
+     */
+    private function refreshMetadata(Media $media, AddedFile $source, ?string $checksum, ?array $dimensions): void
     {
         $media->mime_type = $source->mimeType;
         $media->extension = $source->extension;
         $media->size = $source->size;
         $media->checksum = $checksum;
-        // file_name stays stable so the public URL doesn't change; width/height/placeholders are
-        // reset here and recomputed (or left null for non-images) by captureImageMetadata().
-        $media->width = null;
-        $media->height = null;
+        // file_name stays stable so the public URL doesn't change; placeholders are recomputed
+        // (or left null for non-images) below.
+        $media->width = $dimensions[0] ?? null;
+        $media->height = $dimensions[1] ?? null;
         $media->placeholders = null;
-    }
 
-    private function captureImageMetadata(Media $media, AddedFile $source): void
-    {
         if (! $media->isImage()) {
             return;
-        }
-
-        // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.
-        $dimensions = ExifOrientation::displayDimensions($source->path);
-
-        if ($dimensions !== null) {
-            [$media->width, $media->height] = $dimensions;
         }
 
         try {
@@ -106,20 +127,21 @@ final class ReplaceMediaAction
     }
 
     /**
-     * Write the new bytes, deduplicating when an identical `(disk, visibility, checksum)` already
-     * exists on another row. Otherwise the bytes are written under this row's own uuid path.
+     * Write the new bytes: onto an identical existing file when dedup finds one, else in place when
+     * the old original was this row's alone, else onto a free path of this row's own.
      */
-    private function writeOriginal(Media $media, AddedFile $source, ?string $checksum): void
+    private function writeOriginal(Media $media, AddedFile $source, ?string $checksum, string $oldPath, bool $oldShared): void
     {
         $canonical = $this->dedupCanonical($media, $checksum);
 
         if ($canonical !== null) {
+            $this->files->pin($canonical);
             $media->path = $canonical->getPath();
 
             return;
         }
 
-        $target = $this->pathGenerator->getPath($media).$media->file_name;
+        $target = $oldShared ? $this->files->freePath($media, $media->disk) : $oldPath;
         $media->path = $target;
 
         $stream = fopen($source->path, 'rb');
@@ -144,49 +166,14 @@ final class ReplaceMediaAction
         return $this->checksum->canonicalFor($media->disk, $media->visibility, $checksum, (int) $media->getKey());
     }
 
-    /**
-     * Remove the OLD original — but only when no other row still references it, and only when it
-     * lived under this row's own uuid (a deduped pointer to a canonical file is never deleted here).
-     */
-    private function releaseOldOriginal(string $oldDisk, string $oldPath, bool $oldSharedByOthers, Media $media): void
+    /** Remove the OLD original — unless another row still points at it, or it is the file just written. */
+    private function releaseOldOriginal(string $oldDisk, string $oldPath, bool $oldShared, Media $media): void
     {
-        if ($oldSharedByOthers) {
-            return;
-        }
-
-        // The new write may have landed on the very same path (same bytes round-tripped) — never
-        // delete the file we just wrote.
-        if ($oldDisk === $media->disk && $oldPath === $media->getPath()) {
-            return;
-        }
-
-        if (! str_starts_with($oldPath, $media->uuid.'/')) {
+        if ($oldShared || ($oldDisk === $media->disk && $oldPath === $media->getPath())) {
             return;
         }
 
         Storage::disk($oldDisk)->delete($oldPath);
-    }
-
-    private function removeOwnVariants(Media $media): void
-    {
-        $disk = Storage::disk($media->variants_disk ?? $media->disk);
-
-        foreach (array_keys($media->generated_variants ?? []) as $name) {
-            $disk->delete($media->getPath((string) $name));
-        }
-    }
-
-    private function regenerateVariants(Media $media): void
-    {
-        if (! $media->isImage()) {
-            return;
-        }
-
-        $variants = $media->resolveVariants();
-
-        if ($variants !== []) {
-            $this->generateVariants->execute($media, $variants);
-        }
     }
 
     private function discardSource(AddedFile $source): void

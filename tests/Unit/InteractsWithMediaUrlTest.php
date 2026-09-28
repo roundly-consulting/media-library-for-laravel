@@ -33,7 +33,7 @@ it('returns the first media variant url', function (): void {
     [$user] = userWithMedia([
         'disk' => 'public',
         'variants_disk' => 'hot',
-        'generated_variants' => ['thumb' => true],
+        'generated_variants' => ['thumb' => ['file_name' => 'thumb.jpg', 'format' => 'jpg', 'disk' => 'hot']],
         'extension' => 'jpg',
     ]);
 

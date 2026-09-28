@@ -34,9 +34,7 @@ final class ResponsiveImageGenerator
     {
         $widths = [];
 
-        foreach (array_keys($media->generated_variants ?? []) as $name) {
-            $name = (string) $name;
-
+        foreach (array_keys($media->generatedVariants()) as $name) {
             if (str_starts_with($name, self::PREFIX)) {
                 $width = (int) substr($name, strlen(self::PREFIX));
 

@@ -117,8 +117,9 @@ class MediaLibraryManager
     }
 
     /**
-     * Bind a previously-uploaded draft (by its token) to a model's bucket. Throws when the token
-     * is unknown or already bound, or when the draft's TTL has lapsed.
+     * Bind a previously-uploaded draft (by its token) to a model's bucket — the bucket's acceptance
+     * rules, disk/visibility, single-file rule and variants apply. Throws when the token is unknown
+     * or already bound, when the draft's TTL has lapsed, or when the bucket refuses the file.
      */
     public function bindDraft(string $token, Model $to, string $bucket = 'default'): Media
     {
@@ -158,7 +159,10 @@ class MediaLibraryManager
         return $this->container->make(CopyMediaAction::class)->execute($media, $to, $bucket, $disk);
     }
 
-    /** Replace a media's bytes in place — same id, uuid and URL; metadata and variants are rebuilt. */
+    /**
+     * Replace a media's bytes — same id and uuid, and the same URL unless the old file is shared
+     * with other media (it is then left untouched for them); metadata and variants are rebuilt.
+     */
     public function replace(Media $media, string|UploadedFile $file): Media
     {
         return $this->container->make(ReplaceMediaAction::class)->execute($media, $file);
@@ -201,7 +205,7 @@ class MediaLibraryManager
     }
 
     /**
-     * The media in a global bucket, in order.
+     * The media in a global bucket, in order. Unbound drafts are not global media and never appear.
      *
      * @return Builder<Media>
      */

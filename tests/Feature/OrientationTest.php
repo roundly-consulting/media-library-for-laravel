@@ -55,7 +55,6 @@ it('sizes the responsive ladder from the upright width', function (): void {
 it('records the upright dimensions when a phone photo replaces the bytes', function (): void {
     $media = TestUser::query()->create(['name' => 'Jane'])
         ->addMedia(__DIR__.'/../files/sunrise.png')
-        ->preservingOriginal()
         ->toMediaBucket('gallery');
 
     $media->replace($this->phonePhoto);

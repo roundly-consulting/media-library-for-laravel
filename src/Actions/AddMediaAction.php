@@ -8,67 +8,86 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
-use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
-use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
-use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
+use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
-use RoundlyConsulting\MediaLibrary\Variants\Variant;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 use Throwable;
 
 /**
  * Persists a normalized source file as a {@see Media} row and writes its bytes through
  * Laravel's filesystem, honouring the bucket's storage/visibility/acceptance rules.
+ *
+ * The bucket's mime allowlist, size cap and image dimensions are checked before anything is
+ * written; a `singleFile()` bucket's previous media is removed only once the new one is stored.
  */
 final class AddMediaAction
 {
     public function __construct(
         private readonly DiskResolver $diskResolver,
-        private readonly PathGenerator $pathGenerator,
         private readonly FileNamer $fileNamer,
-        private readonly GenerateVariantsAction $generateVariants,
+        private readonly DispatchVariantsAction $dispatchVariants,
         private readonly VariantResolver $variantResolver,
         private readonly Checksum $checksum,
         private readonly PlaceholderGenerator $placeholders,
+        private readonly BucketGuard $guard,
+        private readonly StoredFiles $files,
     ) {}
 
     public function execute(PendingFileAddState $state): Media
     {
-        $bucket = $this->resolveBucket($state->owner, $state->bucket);
+        $bucket = $this->guard->bucketFor($state->owner, $state->bucket);
 
-        $this->guardAcceptedMimeType($bucket, $state->bucket, $state->file->mimeType);
+        // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.
+        $dimensions = str_starts_with((string) $state->file->mimeType, 'image/')
+            ? ExifOrientation::displayDimensions($state->file->path)
+            : null;
+
+        $this->guard->ensureAccepts(
+            $bucket,
+            $state->bucket,
+            $state->file->mimeType,
+            $state->file->size,
+            $dimensions[0] ?? null,
+            $dimensions[1] ?? null,
+        );
 
         $disk = $this->diskResolver->resolveOriginalDisk($state->diskOverride, $bucket);
         $variantsDisk = $this->diskResolver->resolveVariantsDisk($state->variantsDiskOverride, $bucket, $disk);
 
         $visibility = $this->resolveVisibility($state->visibility, $bucket);
 
-        if (! $state->draft && $bucket !== null && $bucket->isSingleFile() && $state->owner instanceof Model) {
-            $this->clearBucket($state->owner, $state->bucket);
-        }
-
-        $media = $this->makeMedia($state, $bucket, $disk, $variantsDisk, $visibility);
+        $media = $this->makeMedia($state, $disk, $variantsDisk, $visibility);
 
         $checksum = $this->checksum->forLocalFile($state->file->path);
         $media->checksum = $checksum;
 
-        // Dimensions + LQIP placeholders read the local source, which storeOriginal() then discards.
-        $this->captureImageMetadata($media, $state);
+        if ($dimensions !== null) {
+            [$media->width, $media->height] = $dimensions;
+        }
+
+        // LQIP placeholders read the local source, which storeOriginal() then discards.
+        $this->capturePlaceholders($media, $state);
 
         $this->storeOriginal($media, $state, $disk, $visibility, $checksum);
 
         $media->save();
+
+        if (! $state->draft && $state->owner instanceof Model) {
+            $this->guard->enforceSingleFile($bucket, $state->owner, $state->bucket, $media);
+        }
 
         event(new MediaHasBeenAdded($media));
 
@@ -78,21 +97,13 @@ final class AddMediaAction
     }
 
     /**
-     * For image media, read pixel dimensions and compute the LQIP placeholders from the local
-     * source. Non-images are skipped (dimensions/placeholders stay null). Any image-decoding
+     * For image media, compute the LQIP placeholders from the local source. Any image-decoding
      * failure is swallowed so a quirky file never blocks the upload itself.
      */
-    private function captureImageMetadata(Media $media, PendingFileAddState $state): void
+    private function capturePlaceholders(Media $media, PendingFileAddState $state): void
     {
         if (! $media->isImage()) {
             return;
-        }
-
-        // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.
-        $dimensions = ExifOrientation::displayDimensions($state->file->path);
-
-        if ($dimensions !== null) {
-            [$media->width, $media->height] = $dimensions;
         }
 
         try {
@@ -108,87 +119,31 @@ final class AddMediaAction
 
     private function generateVariantsFor(Media $media, ?MediaBucket $bucket, PendingFileAddState $state): void
     {
-        if ($bucket === null || ! $media->isImage() || ! $state->owner instanceof HasMedia) {
+        if ($bucket === null || ! $state->owner instanceof HasMedia) {
             return;
         }
 
-        $variants = $this->variantResolver->forOwnerBucket($state->owner, $state->bucket, $media);
-
-        if ($variants === []) {
-            return;
-        }
-
-        $sync = [];
-        $queued = [];
-
-        foreach ($variants as $variant) {
-            if ($this->shouldQueue($variant)) {
-                $queued[] = $variant->name;
-            } else {
-                $sync[] = $variant;
-            }
-        }
-
-        if ($sync !== []) {
-            $this->generateVariants->execute($media, $sync);
-        }
-
-        if ($queued !== []) {
-            $this->dispatchQueued($media, $queued, $state);
-        }
-    }
-
-    private function shouldQueue(Variant $variant): bool
-    {
-        $perVariant = $variant->isQueued();
-
-        if ($perVariant !== null) {
-            return $perVariant;
-        }
-
-        return config('media.queue_variants_by_default') === true;
-    }
-
-    /**
-     * @param  list<string>  $variantNames
-     */
-    private function dispatchQueued(Media $media, array $variantNames, PendingFileAddState $state): void
-    {
-        $job = new GenerateVariantsJob((int) $media->getKey(), $variantNames);
-
-        $connection = config('media.queue_connection');
-        $queue = $state->queue ?? config('media.queue_name');
-
-        if (is_string($connection)) {
-            $job->onConnection($connection);
-        }
-
-        if (is_string($queue)) {
-            $job->onQueue($queue);
-        }
-
-        dispatch($job);
+        $this->dispatchVariants->execute(
+            $media,
+            $this->variantResolver->forOwnerBucket($state->owner, $state->bucket, $media),
+            $state->queue,
+        );
     }
 
     private function makeMedia(
         PendingFileAddState $state,
-        ?MediaBucket $bucket,
         string $disk,
         string $variantsDisk,
         string $visibility,
     ): Media {
-        $fileName = $this->fileNamer->originalFileName(
-            $state->fileName ?? $state->file->fileName
-        );
-
         $media = MediaModel::new();
 
         $media->uuid = (string) Str::uuid();
         $media->bucket_name = $state->bucket;
         $media->name = $state->name ?? $state->file->name;
-        $media->file_name = $fileName;
+        $media->file_name = $this->fileName($state);
         $media->mime_type = $state->file->mimeType;
-        $media->extension = $state->file->extension;
+        $media->extension = FileNames::extensionOf($media->file_name);
         $media->disk = $disk;
         $media->variants_disk = $variantsDisk === $disk ? null : $variantsDisk;
         $media->size = $state->file->size;
@@ -210,6 +165,20 @@ final class AddMediaAction
     }
 
     /**
+     * The stored name. A `usingFileName()` override is as untrusted as a client's upload name, so
+     * it is reduced to one safe path segment whose extension cannot lie about the sniffed bytes —
+     * and so is whatever a host's {@see FileNamer} makes of it.
+     */
+    private function fileName(PendingFileAddState $state): string
+    {
+        $requested = $state->fileName !== null
+            ? FileNames::conform(FileNames::sanitize($state->fileName), $state->file->mimeType)
+            : $state->file->fileName;
+
+        return FileNames::sanitize($this->fileNamer->originalFileName($requested));
+    }
+
+    /**
      * Store the original's bytes, deduplicating when an identical `(disk, visibility, checksum)`
      * already exists: a deduped row points its `path` at the canonical file and writes nothing.
      */
@@ -223,6 +192,7 @@ final class AddMediaAction
         $canonical = $this->dedupCanonical($disk, $visibility, $checksum);
 
         if ($canonical !== null) {
+            $this->files->pin($canonical);
             $media->path = $canonical->getPath();
 
             $this->discardSource($state);
@@ -230,7 +200,7 @@ final class AddMediaAction
             return;
         }
 
-        $target = $this->pathGenerator->getPath($media).$media->file_name;
+        $target = $this->files->freePath($media, $disk);
         $media->path = $target;
 
         $stream = fopen($state->file->path, 'rb');
@@ -257,26 +227,11 @@ final class AddMediaAction
         return $this->checksum->canonicalFor($disk, $visibility, $checksum);
     }
 
+    /** Remove the package's own temporary copy of the source; a caller's local path is never touched. */
     private function discardSource(PendingFileAddState $state): void
     {
-        if (! $state->preserveOriginal && $state->file->isTemporary && is_file($state->file->path)) {
+        if ($state->file->isTemporary && is_file($state->file->path)) {
             @unlink($state->file->path);
-        }
-    }
-
-    private function resolveBucket(HasMedia|Model|null $owner, string $bucketName): ?MediaBucket
-    {
-        if (! $owner instanceof HasMedia) {
-            return null;
-        }
-
-        return $owner->resolveMediaBucket($bucketName);
-    }
-
-    private function guardAcceptedMimeType(?MediaBucket $bucket, string $bucketName, ?string $mimeType): void
-    {
-        if ($bucket !== null && ! $bucket->accepts($mimeType)) {
-            throw FileUnacceptableForBucket::mimeType($mimeType ?? 'unknown', $bucketName);
         }
     }
 
@@ -307,15 +262,5 @@ final class AddMediaAction
         $ttl = config('media.drafts.ttl');
 
         return is_numeric($ttl) ? (int) $ttl : 1440;
-    }
-
-    private function clearBucket(Model $owner, string $bucket): void
-    {
-        MediaModel::query()
-            ->where('model_type', $owner->getMorphClass())
-            ->where('model_id', $owner->getKey())
-            ->where('bucket_name', $bucket)
-            ->get()
-            ->each(fn (Media $media): mixed => $media->forceDelete());
     }
 }

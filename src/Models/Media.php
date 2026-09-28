@@ -18,6 +18,7 @@ use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Database\Factories\MediaFactory;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\GeneratedVariant;
 use RoundlyConsulting\MediaLibrary\Exceptions\ChecksumMismatch;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri;
@@ -26,6 +27,7 @@ use RoundlyConsulting\MediaLibrary\Variants\ResponsiveImageGenerator;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\Mime\MimeTypes;
 
 /**
  * @property int $id
@@ -43,7 +45,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * @property int $size
  * @property string $visibility
  * @property array<string, mixed>|null $custom_properties
- * @property array<string, bool>|null $generated_variants
+ * @property array<string, array{file_name: string, format: string, disk: string}>|null $generated_variants
  * @property string|null $checksum
  * @property int|null $width
  * @property int|null $height
@@ -62,7 +64,23 @@ class Media extends Model
 
     use SoftDeletes;
 
+    /**
+     * Types a browser may render inline without running anything; everything else (HTML, SVG,
+     * XML, scripts, unknown types) is streamed as an attachment.
+     */
+    private const INLINE_SAFE_TYPES = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp',
+        'image/x-ms-bmp', 'image/tiff', 'image/heic', 'image/heif', 'image/x-icon',
+        'image/vnd.microsoft.icon', 'application/pdf', 'text/plain',
+    ];
+
+    /** Locks a streamed file into a sandbox, so even a mislabelled one cannot script the app origin. */
+    private const SANDBOX_POLICY = "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'";
+
     protected $guarded = [];
+
+    /** The draft token is a bearer secret: whoever holds it can bind the draft to their own model. */
+    protected $hidden = ['draft_token'];
 
     public function getTable(): string
     {
@@ -115,7 +133,9 @@ class Media extends Model
      */
     public function scopeGlobal(Builder $query): void
     {
-        $query->whereNull('model_type')->whereNull('model_id');
+        // An unbound draft has no owner either, but it is not global media: it belongs to whoever
+        // holds its token until it is bound (or pruned).
+        $query->whereNull('model_type')->whereNull('model_id')->whereNull('draft_token');
     }
 
     /**
@@ -155,7 +175,9 @@ class Media extends Model
             return $this->pathGenerator()->getPath($this).$this->file_name;
         }
 
-        return $this->pathGenerator()->getPathForVariants($this).$this->variantFileName($variant);
+        $fileName = $this->generatedVariant($variant)->fileName ?? $this->variantFileName($variant);
+
+        return $this->pathGenerator()->getPathForVariants($this).$fileName;
     }
 
     /** The variants directory for this media, used when relocating stored variant files by name. */
@@ -192,23 +214,33 @@ class Media extends Model
         return $this->visibility === 'private';
     }
 
-    /** Stream the media inline (range-aware) straight from its disk. */
+    /**
+     * Stream the media inline (range-aware) straight from its disk.
+     *
+     * Only types a browser renders without running anything are served inline; HTML, SVG, XML and
+     * any other type are sent as an attachment. Every response carries `nosniff` and a sandboxing
+     * CSP, so a file can never execute script on the application's origin.
+     */
     public function toResponse(Request $request): StreamedResponse
     {
         $variant = $this->variantFromRequest($request);
 
-        if ($this->wantsDownload($request)) {
+        if ($this->wantsDownload($request) || ! $this->isInlineSafe($variant)) {
             return $this->toDownloadResponse(null, $variant);
         }
 
         $this->guardChecksumOnRead($variant);
 
         if ($request->headers->has('Range')) {
-            return $this->rangeResponse($request, $variant);
+            $ranged = $this->rangeResponse($request, $variant);
+
+            if ($ranged !== null) {
+                return $ranged;
+            }
         }
 
         return Storage::disk($this->diskFor($variant))
-            ->response($this->getPath($variant), $this->file_name, $this->streamHeaders());
+            ->response($this->getPath($variant), $this->responseFileName($variant), $this->streamHeaders($variant));
     }
 
     /** Force a download (HTTP attachment) of the media from its disk. */
@@ -217,12 +249,58 @@ class Media extends Model
         $this->guardChecksumOnRead($variant);
 
         return Storage::disk($this->diskFor($variant))
-            ->download($this->getPath($variant), $name ?? $this->file_name);
+            ->download($this->getPath($variant), $name ?? $this->responseFileName($variant), $this->streamHeaders($variant));
     }
 
     public function hasGeneratedVariant(string $name): bool
     {
-        return ($this->generated_variants[$name] ?? false) === true;
+        return $this->generatedVariant($name) !== null;
+    }
+
+    /**
+     * What was written for each generated variant, keyed by variant name.
+     *
+     * @internal
+     *
+     * @return array<string, GeneratedVariant>
+     */
+    public function generatedVariants(): array
+    {
+        $records = [];
+
+        foreach ($this->generated_variants ?? [] as $name => $stored) {
+            $record = GeneratedVariant::fromStored($stored);
+
+            if ($record !== null) {
+                $records[(string) $name] = $record;
+            }
+        }
+
+        return $records;
+    }
+
+    /** @internal what was written for one variant, or null when it has not been generated */
+    public function generatedVariant(string $name): ?GeneratedVariant
+    {
+        return $name === '' ? null : GeneratedVariant::fromStored($this->generated_variants[$name] ?? null);
+    }
+
+    /** @internal record the file a variant was just written to (unsaved) */
+    public function recordGeneratedVariant(string $name, GeneratedVariant $variant): void
+    {
+        $records = $this->generated_variants ?? [];
+        $records[$name] = $variant->toArray();
+
+        $this->generated_variants = $records;
+    }
+
+    /** @internal forget a variant's record (unsaved); its file is the caller's to remove */
+    public function forgetGeneratedVariant(string $name): void
+    {
+        $records = $this->generated_variants ?? [];
+        unset($records[$name]);
+
+        $this->generated_variants = $records;
     }
 
     /**
@@ -281,14 +359,24 @@ class Media extends Model
         return app(VariantResolver::class)->forMedia($this);
     }
 
-    /** The disk a given variant (or the original) lives on. */
+    /**
+     * The disk a given variant (or the original) lives on: where a generated variant was actually
+     * written, else where it would be written (its own `storeOnDisk()`, the media's variants disk,
+     * the original's disk).
+     */
     public function diskFor(string $variant = ''): string
     {
         if ($variant === '') {
             return $this->disk;
         }
 
-        return $this->variants_disk ?? $this->disk;
+        $generated = $this->generatedVariant($variant);
+
+        if ($generated !== null) {
+            return $generated->disk;
+        }
+
+        return $this->variantDefinition($variant)?->disk() ?? $this->variants_disk ?? $this->disk;
     }
 
     public function getCustomProperty(string $key, mixed $default = null): mixed
@@ -386,42 +474,53 @@ class Media extends Model
         return $actual !== null && hash_equals($this->checksum, $actual);
     }
 
+    /** Where an un-generated variant WOULD be written — the same derivation the generator uses. */
     private function variantFileName(string $variant): string
     {
-        return $this->fileNamer()->variantFileName($variant, $this->variantExtension($variant));
+        $source = (string) $this->extension;
+        $format = $this->variantDefinition($variant)?->outputFormat($source) ?? Variant::inheritedFormat($source);
+
+        return $this->fileNamer()->variantFileName($variant, $format);
     }
 
-    private function variantExtension(string $variant): string
+    private function variantDefinition(string $variant): ?Variant
     {
         foreach ($this->resolveVariants() as $definition) {
-            if ($definition->name === $variant && $definition->getFormat() !== null) {
-                return $definition->getFormat();
+            if ($definition->name === $variant) {
+                return $definition;
             }
         }
 
-        $extension = $this->extension;
-
-        if ($extension === null || $extension === '') {
-            return 'jpg';
-        }
-
-        return $extension === 'jpeg' ? 'jpg' : $extension;
+        return null;
     }
 
     /**
      * Serve a single byte range with a 206 response, seeking the disk stream rather than buffering
-     * the whole file. Unsatisfiable ranges yield 416.
+     * the whole file. A header this cannot parse — another unit, several ranges, `last < first`,
+     * garbage — is ignored (null: serve the whole file, as RFC 9110 allows); a well-formed range
+     * past the end of the file yields 416.
      */
-    private function rangeResponse(Request $request, string $variant): StreamedResponse
+    private function rangeResponse(Request $request, string $variant): ?StreamedResponse
     {
+        $header = trim((string) $request->headers->get('Range'));
+
+        if (! preg_match('/^bytes=(\d*)-(\d*)$/', $header, $matches) || $matches[1].$matches[2] === '') {
+            return null;
+        }
+
+        if ($matches[1] !== '' && $matches[2] !== '' && (int) $matches[2] < (int) $matches[1]) {
+            return null;
+        }
+
         $disk = $this->diskFor($variant);
         $path = $this->getPath($variant);
         $size = Storage::disk($disk)->size($path);
 
-        $range = $this->parseRange((string) $request->headers->get('Range'), $size);
+        $range = $this->satisfiableRange($matches[1], $matches[2], $size);
 
         if ($range === null) {
-            $response = new StreamedResponse(status: 416);
+            // The callback is required: a StreamedResponse without one throws when it is sent.
+            $response = new StreamedResponse(static function (): void {}, 416);
             $response->headers->set('Content-Range', "bytes */{$size}");
 
             return $response;
@@ -430,7 +529,7 @@ class Media extends Model
         [$start, $end] = $range;
         $length = $end - $start + 1;
 
-        $headers = $this->streamHeaders();
+        $headers = $this->streamHeaders($variant);
         $headers['Content-Length'] = (string) $length;
         $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
         $headers['Accept-Ranges'] = 'bytes';
@@ -472,22 +571,12 @@ class Media extends Model
     }
 
     /**
-     * Parse a single `bytes=start-end` range against the file size.
+     * Resolve a well-formed `bytes=start-end` range against the file size.
      *
      * @return array{0: int, 1: int}|null [start, end] inclusive, or null if unsatisfiable
      */
-    private function parseRange(string $header, int $size): ?array
+    private function satisfiableRange(string $rawStart, string $rawEnd, int $size): ?array
     {
-        if (! preg_match('/^bytes=(\d*)-(\d*)$/', $header, $matches)) {
-            return null;
-        }
-
-        [$rawStart, $rawEnd] = [$matches[1], $matches[2]];
-
-        if ($rawStart === '' && $rawEnd === '') {
-            return null;
-        }
-
         if ($rawStart === '') {
             $start = max(0, $size - (int) $rawEnd);
             $end = $size - 1;
@@ -537,13 +626,49 @@ class Media extends Model
         return $request->boolean('download');
     }
 
-    /** @return array<string, string> */
-    private function streamHeaders(): array
+    /**
+     * The type of the file a response serves: a variant's own output format, else the original's
+     * recorded (sniffed) mime type.
+     */
+    private function responseMimeType(string $variant): ?string
     {
-        $headers = [];
+        $generated = $this->generatedVariant($variant);
 
-        if (is_string($this->mime_type) && $this->mime_type !== '') {
-            $headers['Content-Type'] = $this->mime_type;
+        if ($generated !== null && $generated->format !== '') {
+            return MimeTypes::getDefault()->getMimeTypes($generated->format)[0] ?? null;
+        }
+
+        return is_string($this->mime_type) && $this->mime_type !== '' ? $this->mime_type : null;
+    }
+
+    private function isInlineSafe(string $variant): bool
+    {
+        $mimeType = (string) $this->responseMimeType($variant);
+
+        return in_array($mimeType, self::INLINE_SAFE_TYPES, true)
+            || str_starts_with($mimeType, 'audio/')
+            || str_starts_with($mimeType, 'video/');
+    }
+
+    private function responseFileName(string $variant): string
+    {
+        return $this->generatedVariant($variant)->fileName ?? $this->file_name;
+    }
+
+    /** @return array<string, string> */
+    private function streamHeaders(string $variant): array
+    {
+        $headers = ['X-Content-Type-Options' => 'nosniff'];
+
+        $mimeType = $this->responseMimeType($variant);
+
+        if ($mimeType !== null) {
+            $headers['Content-Type'] = $mimeType;
+        }
+
+        // A browser's PDF viewer refuses to run inside a CSP sandbox; PDF is inline-safe without it.
+        if ($mimeType !== 'application/pdf') {
+            $headers['Content-Security-Policy'] = self::SANDBOX_POLICY;
         }
 
         return $headers;

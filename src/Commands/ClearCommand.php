@@ -58,7 +58,8 @@ final class ClearCommand extends Command
         if (is_string($model) && $model !== '') {
             $query->where('model_type', $this->morphTypeFor($model));
         } else {
-            $query->whereNull('model_type')->whereNull('model_id');
+            // Global media only — an unbound draft belongs to whoever holds its token.
+            $query->whereNull('model_type')->whereNull('model_id')->whereNull('draft_token');
         }
 
         return $query;

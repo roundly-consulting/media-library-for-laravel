@@ -171,7 +171,7 @@ final class Variant
      */
     public function resolve(ImageDriver $driver, string $sourceExtension): ManipulationSet
     {
-        $format = $this->format ?? $this->normalizeExtension($sourceExtension);
+        $format = $this->outputFormat($sourceExtension);
 
         if (! $driver->supportsFormat($format)) {
             throw InvalidVariant::unsupportedFormat($format, $driver->name());
@@ -189,9 +189,19 @@ final class Variant
         );
     }
 
-    private function normalizeExtension(string $extension): string
+    /** The format this variant renders a source of `$sourceExtension` to: its own, else the source's. */
+    public function outputFormat(string $sourceExtension): string
     {
-        $extension = strtolower($extension);
+        return $this->format ?? self::inheritedFormat($sourceExtension);
+    }
+
+    /**
+     * The format a variant without an explicit `format()` inherits from its source: the source's
+     * own extension when a driver can write it, otherwise `jpg` (a `.bmp` or `.tiff` original).
+     */
+    public static function inheritedFormat(string $sourceExtension): string
+    {
+        $extension = strtolower($sourceExtension);
         $extension = $extension === 'jpeg' ? 'jpg' : $extension;
 
         return in_array($extension, self::FORMATS, true) ? $extension : 'jpg';

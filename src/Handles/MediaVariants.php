@@ -39,15 +39,7 @@ final readonly class MediaVariants
      */
     public function generated(): array
     {
-        $names = [];
-
-        foreach ($this->media->generated_variants ?? [] as $name => $generated) {
-            if ($generated === true) {
-                $names[] = (string) $name;
-            }
-        }
-
-        return $names;
+        return array_map('strval', array_keys($this->media->generatedVariants()));
     }
 
     /**

@@ -15,7 +15,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *
  * The framework `signed` middleware enforces the signature; this action additionally verifies —
  * defense in depth — that the resolved media is the one the signature was minted for, then
- * streams via Laravel's Storage so private media is reachable only through a valid signature.
+ * streams via Laravel's Storage. Active content (HTML, SVG, …) is sent as a sandboxed attachment,
+ * never rendered inline on the application's origin — see {@see Media::toResponse()}.
  */
 final class MediaStreamController
 {

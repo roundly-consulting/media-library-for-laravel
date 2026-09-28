@@ -36,13 +36,11 @@ it('overrides visibility via the builder', function (): void {
     expect($media->visibility)->toBe('private');
 });
 
-it('preserves a source file when asked', function (): void {
+it('never moves or deletes a local source path', function (): void {
     $source = tempnam(sys_get_temp_dir(), 'src_').'.txt';
     file_put_contents($source, 'keep me');
 
-    $media = pendingUser()->addMedia($source)
-        ->preservingOriginal()
-        ->toMediaBucket('gallery');
+    $media = pendingUser()->addMedia($source)->toMediaBucket('gallery');
 
     expect(is_file($source))->toBeTrue();
     Storage::disk('public')->assertExists($media->getPath());

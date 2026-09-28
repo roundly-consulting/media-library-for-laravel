@@ -9,12 +9,16 @@ use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Observers\MediaObserver;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 
 /**
  * Conservatively reclaims storage:
- *   - removes orphaned variant files (files in a media's variants directory that are not the
- *     original and are not listed in its `generated_variants`);
- *   - never touches soft-deleted media — a restore must stay lossless.
+ *   - removes orphaned variant files — files in a media's own variants directory that its
+ *     `generated_variants` does not record on that disk;
+ *   - never removes a file any row (soft-deleted ones included) stores as its original, so a
+ *     layout that keeps variants next to the original is safe;
+ *   - never touches soft-deleted media, and never scans a directory the layout shares between
+ *     media (one without the media's uuid as a path segment).
  *
  * Files for force-deleted/permanently-gone rows are already removed by the
  * {@see MediaObserver} on `forceDelete()`, so a
@@ -26,12 +30,12 @@ final class CleanCommand extends Command
 
     protected $description = 'Remove orphaned variant files, leaving soft-deleted media untouched';
 
-    public function handle(): int
+    public function handle(StoredFiles $files): int
     {
         $removed = 0;
 
-        MediaModel::query()->each(function (Media $media) use (&$removed): void {
-            $removed += $this->cleanVariants($media);
+        MediaModel::query()->lazyById()->each(function (Media $media) use ($files, &$removed): void {
+            $removed += $this->cleanVariants($media, $files);
         });
 
         $this->info("Removed {$removed} orphaned variant file(s).");
@@ -39,22 +43,35 @@ final class CleanCommand extends Command
         return self::SUCCESS;
     }
 
-    private function cleanVariants(Media $media): int
+    private function cleanVariants(Media $media, StoredFiles $files): int
     {
-        $disk = Storage::disk($media->variants_disk ?? $media->disk);
         $directory = rtrim($media->getPathForVariantsDirectory(), '/');
 
-        if ($directory === '' || ! $disk->exists($directory)) {
+        if ($directory === '' || ! $files->isOwnDirectory($media, $directory)) {
             return 0;
         }
 
-        $keep = $this->expectedVariantFiles($media);
-
         $removed = 0;
 
-        foreach ($disk->files($directory) as $file) {
-            if (! in_array(basename($file), $keep, true)) {
-                $disk->delete($file);
+        foreach ($this->variantDisks($media) as $disk) {
+            $storage = Storage::disk($disk);
+
+            if (! $storage->exists($directory)) {
+                continue;
+            }
+
+            $candidates = [];
+
+            foreach ($storage->files($directory) as $file) {
+                if (! in_array($file, $this->expectedVariantPaths($media, $disk), true)) {
+                    $candidates[] = $file;
+                }
+            }
+
+            $originals = $files->referencedOriginals($disk, $candidates);
+
+            foreach (array_diff($candidates, $originals) as $file) {
+                $storage->delete($file);
                 $removed++;
             }
         }
@@ -63,18 +80,36 @@ final class CleanCommand extends Command
     }
 
     /**
-     * The variant filenames that should exist for this media (the ones it still references).
+     * Every disk this media's variants may live on.
      *
      * @return list<string>
      */
-    private function expectedVariantFiles(Media $media): array
+    private function variantDisks(Media $media): array
     {
-        $files = [];
+        $disks = [$media->variants_disk ?? $media->disk];
 
-        foreach (array_keys($media->generated_variants ?? []) as $name) {
-            $files[] = basename($media->getPath((string) $name));
+        foreach ($media->generatedVariants() as $variant) {
+            $disks[] = $variant->disk;
         }
 
-        return $files;
+        return array_values(array_unique($disks));
+    }
+
+    /**
+     * The variant files this media records on `$disk`.
+     *
+     * @return list<string>
+     */
+    private function expectedVariantPaths(Media $media, string $disk): array
+    {
+        $paths = [];
+
+        foreach ($media->generatedVariants() as $name => $variant) {
+            if ($variant->disk === $disk) {
+                $paths[] = $media->getPath($name);
+            }
+        }
+
+        return $paths;
     }
 }

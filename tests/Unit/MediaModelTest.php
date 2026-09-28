@@ -40,10 +40,28 @@ it('reads and writes custom properties', function (): void {
 });
 
 it('tracks generated variants', function (): void {
-    $media = Media::factory()->make(['generated_variants' => ['thumb' => true]]);
+    $media = Media::factory()->make(['generated_variants' => [
+        'thumb' => ['file_name' => 'thumb.webp', 'format' => 'webp', 'disk' => 'hot'],
+        'legacy' => true,
+    ]]);
 
     expect($media->hasGeneratedVariant('thumb'))->toBeTrue()
-        ->and($media->hasGeneratedVariant('display'))->toBeFalse();
+        ->and($media->hasGeneratedVariant('display'))->toBeFalse()
+        ->and($media->hasGeneratedVariant('legacy'))->toBeFalse()
+        ->and($media->hasGeneratedVariant(''))->toBeFalse()
+        ->and($media->diskFor('thumb'))->toBe('hot')
+        ->and($media->getPath('thumb'))->toBe($media->uuid.'/variants/thumb.webp');
+});
+
+it('forgets a generated variant record', function (): void {
+    $media = Media::factory()->make(['generated_variants' => [
+        'thumb' => ['file_name' => 'thumb.webp', 'format' => 'webp', 'disk' => 'hot'],
+    ]]);
+
+    $media->forgetGeneratedVariant('thumb');
+
+    expect($media->generated_variants)->toBe([])
+        ->and($media->generatedVariants())->toBe([]);
 });
 
 it('exposes a public url', function (): void {

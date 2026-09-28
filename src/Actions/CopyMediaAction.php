@@ -7,17 +7,25 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 
 /**
- * Duplicates a {@see Media} — its original and generated variants — into a new row with a fresh
- * uuid, optionally onto a different disk and/or under a different owning model and bucket. The
- * source files are preserved.
+ * Duplicates a {@see Media} into a new row with a fresh uuid, optionally onto a different disk
+ * and/or under a different owning model and bucket. The source files are preserved.
+ *
+ * On the same disk the copy points at the source's stored original (zero bytes copied, refcount-
+ * guarded like a deduplicated upload); on another disk the original is copied to a path no other
+ * row there points at. The variants the target bucket also defines are copied (each staying on
+ * the disk it was written to); the ones it lacks are generated. The target bucket's acceptance and
+ * single-file rules apply.
  *
  * The new row is created inside a transaction; the copied files are written first so a rollback
  * leaves at most orphaned bytes (cleaned up by `media:clean`) rather than a row with no files.
@@ -27,8 +35,14 @@ final class CopyMediaAction
     public function __construct(
         private readonly DiskResolver $diskResolver,
         private readonly FileTransfer $fileTransfer,
+        private readonly StoredFiles $files,
+        private readonly BucketGuard $guard,
+        private readonly ReconcileVariantsAction $reconcileVariants,
     ) {}
 
+    /**
+     * @throws FileUnacceptableForBucket when the target bucket does not accept the media
+     */
     public function execute(
         Media $media,
         HasMedia|Model|null $toModel = null,
@@ -38,6 +52,9 @@ final class CopyMediaAction
         $targetDisk = $disk ?? $media->disk;
         $this->diskResolver->ensureDiskExists($targetDisk);
 
+        $targetBucket = $this->guard->bucketFor($toModel, $bucket);
+        $this->guard->ensureAcceptsMedia($targetBucket, $bucket, $media);
+
         $copy = $this->replicate($media, $toModel, $bucket, $targetDisk);
 
         $this->copyFiles($media, $copy);
@@ -46,17 +63,25 @@ final class CopyMediaAction
             $copy->save();
         });
 
+        if ($toModel instanceof Model) {
+            $this->guard->enforceSingleFile($targetBucket, $toModel, $bucket, $copy);
+        }
+
         event(new MediaHasBeenAdded($copy));
+
+        $this->reconcileVariants->execute($copy);
 
         return $copy;
     }
 
     private function replicate(Media $media, HasMedia|Model|null $toModel, string $bucket, string $targetDisk): Media
     {
-        $copy = $media->replicate(['uuid']);
+        $copy = $media->replicate(['uuid', 'draft_token', 'draft_expires_at']);
         $copy->uuid = (string) Str::uuid();
         $copy->bucket_name = $bucket;
         $copy->disk = $targetDisk;
+        $copy->draft_token = null;
+        $copy->draft_expires_at = null;
 
         // The original moves disk but variants keep their own disk, so re-base variants_disk.
         if ($media->variants_disk === null && $targetDisk !== $media->disk) {
@@ -73,39 +98,48 @@ final class CopyMediaAction
 
         $copy->order_column = $this->nextOrderColumn($copy);
 
+        // replicate() carries the source's loaded owner; the copy's variants follow ITS owner.
+        $copy->setRelation('model', $toModel instanceof Model ? $toModel : null);
+
         return $copy;
     }
 
     private function copyFiles(Media $media, Media $copy): void
     {
-        $this->fileTransfer->copy(
-            $media->disk,
-            $media->getPath(),
-            $copy->disk,
-            $copy->getPath(),
-            $copy->visibility,
-        );
+        if ($copy->disk === $media->disk) {
+            // Same disk: share the stored original, exactly like a deduplicated upload.
+            $this->files->pin($media);
+            $copy->path = $media->getPath();
+        } else {
+            $copy->path = $this->files->freePath($copy, $copy->disk, $media->getPath());
 
-        $variantsFrom = $media->variants_disk ?? $media->disk;
-        $variantsTo = $copy->variants_disk ?? $copy->disk;
+            $this->fileTransfer->copy($media->disk, $media->getPath(), $copy->disk, $copy->path, $copy->visibility);
+        }
 
-        foreach (array_keys($media->generated_variants ?? []) as $name) {
-            $name = (string) $name;
+        $keep = $this->variantNamesDefinedFor($copy);
 
-            $sourcePath = $media->getPath($name);
+        foreach ($media->generatedVariants() as $name => $variant) {
+            if (! in_array($name, $keep, true)) {
+                $copy->forgetGeneratedVariant($name);
 
-            // Preserve the stored variant filename rather than re-deriving it from the (possibly
-            // different) target bucket, so the copied file keeps the bytes it points at.
-            $targetPath = $copy->getPathForVariantsDirectory().basename($sourcePath);
+                continue;
+            }
 
+            // Same file name, same disk — under the copy's own variants directory.
             $this->fileTransfer->copy(
-                $variantsFrom,
-                $sourcePath,
-                $variantsTo,
-                $targetPath,
+                $variant->disk,
+                $media->getPath($name),
+                $variant->disk,
+                $copy->getPath($name),
                 $copy->visibility,
             );
         }
+    }
+
+    /** @return list<string> */
+    private function variantNamesDefinedFor(Media $copy): array
+    {
+        return array_map(static fn ($variant): string => $variant->name, $copy->isImage() ? $copy->resolveVariants() : []);
     }
 
     private function nextOrderColumn(Media $copy): int

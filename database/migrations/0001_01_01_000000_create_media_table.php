@@ -62,6 +62,9 @@ return new class extends Migration
 
             $table->index(['model_type', 'model_id']);
             $table->index(['disk', 'visibility', 'checksum']);
+
+            // The shared-original reference count: which rows point at a stored file.
+            $table->index(['disk', 'path']);
         });
     }
 };

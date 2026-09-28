@@ -6,12 +6,14 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenMoved;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
-use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 
 /**
  * Relocates a {@see Media} — across disks, and/or to a different owning model and bucket
@@ -22,18 +24,28 @@ use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
  * The DB update runs inside a transaction; the physical source files are deleted only after the
  * transaction commits, so a rollback never orphans the row from its files.
  *
- * The source original is refcount-guarded (§7.1): when another non-trashed row still shares the
- * `(disk, visibility, checksum)`, the cross-disk move COPIES to the target and re-points this row
- * but leaves the shared source in place. Variants are always per-row, so they relocate freely.
+ * The source original is refcount-guarded: while another row (soft-deleted ones included) still
+ * points at it, a cross-disk move COPIES it and leaves the source in place. On the target disk the
+ * original keeps its relative path unless another row already points at that path there. Variants
+ * are per-row: those stored on the original's disk follow it.
+ *
+ * Entering a different owner or bucket applies that bucket: its acceptance rules are checked first,
+ * its single-file rule is enforced, variants it does not define are dropped and the ones it defines
+ * are generated.
  */
 final class MoveMediaAction
 {
     public function __construct(
         private readonly DiskResolver $diskResolver,
         private readonly FileTransfer $fileTransfer,
-        private readonly Checksum $checksum,
+        private readonly StoredFiles $files,
+        private readonly BucketGuard $guard,
+        private readonly ReconcileVariantsAction $reconcileVariants,
     ) {}
 
+    /**
+     * @throws FileUnacceptableForBucket when re-homing into a bucket that does not accept the media
+     */
     public function execute(
         Media $media,
         HasMedia|Model|null $toModel = null,
@@ -43,19 +55,27 @@ final class MoveMediaAction
         $targetDisk = $disk ?? $media->disk;
         $this->diskResolver->ensureDiskExists($targetDisk);
 
+        $rehomed = $this->isRehome($media, $toModel, $bucket);
+        $targetBucket = $this->guard->bucketFor($toModel, $bucket);
+
+        if ($rehomed) {
+            $this->guard->ensureAcceptsMedia($targetBucket, $bucket, $media);
+        }
+
         $sourceDisk = $media->disk;
+        $targetPath = $media->getPath();
+        $cleanup = [];
 
-        // Resolved before the row is re-pointed: is the SOURCE original still referenced elsewhere?
-        $sourceShared = $this->checksum->isSharedByOthers($media);
+        if ($targetDisk !== $sourceDisk) {
+            [$targetPath, $cleanup] = $this->relocateFiles($media, $sourceDisk, $targetDisk);
+        }
 
-        $cleanup = $this->relocateFiles($media, $sourceDisk, $targetDisk, $sourceShared);
-
-        DB::transaction(function () use ($media, $toModel, $bucket, $targetDisk, $sourceDisk): void {
+        DB::transaction(function () use ($media, $toModel, $bucket, $targetDisk, $sourceDisk, $targetPath): void {
             $this->rehome($media, $toModel, $bucket);
 
             if ($targetDisk !== $sourceDisk) {
-                // The original now lives at the same relative path on the target disk.
-                $media->path = $this->pathOnTargetDisk($media);
+                $this->followOriginal($media, $sourceDisk, $targetDisk);
+                $media->path = $targetPath;
                 $media->disk = $targetDisk;
             }
 
@@ -67,60 +87,86 @@ final class MoveMediaAction
             $this->fileTransfer->delete($cleanupDisk, $cleanupPath);
         }
 
+        if ($rehomed) {
+            $media->setRelation('model', $toModel instanceof Model ? $toModel : null);
+
+            if ($toModel instanceof Model) {
+                $this->guard->enforceSingleFile($targetBucket, $toModel, $bucket, $media);
+            }
+
+            $this->reconcileVariants->execute($media);
+        }
+
         event(new MediaHasBeenMoved($media));
 
         return $media;
     }
 
-    /**
-     * Move the original (and any variants that share the original disk) onto the target disk,
-     * returning the source files to delete after commit.
-     *
-     * When the source original is still shared by other rows it is copied but NOT scheduled for
-     * deletion — only the last referrer removes it. Variants are always per-row, so they relocate
-     * and are cleaned up unconditionally.
-     *
-     * @return list<array{0: string, 1: string}>
-     */
-    private function relocateFiles(Media $media, string $sourceDisk, string $targetDisk, bool $sourceShared): array
+    private function isRehome(Media $media, HasMedia|Model|null $toModel, string $bucket): bool
     {
-        if ($sourceDisk === $targetDisk) {
+        $type = $toModel instanceof Model ? $toModel->getMorphClass() : null;
+        $id = $toModel instanceof Model ? (string) $toModel->getKey() : null;
+        $currentId = $media->model_id === null ? null : (string) $media->model_id;
+
+        return $media->bucket_name !== $bucket || $media->model_type !== $type || $currentId !== $id;
+    }
+
+    /**
+     * Copy the original (and the variants that live on its disk) onto the target disk. Returns the
+     * original's path there and the source files to delete once the row is committed.
+     *
+     * @return array{0: string, 1: list<array{0: string, 1: string}>}
+     */
+    private function relocateFiles(Media $media, string $sourceDisk, string $targetDisk): array
+    {
+        $sourcePath = $media->getPath();
+        $targetPath = $this->files->freePath($media, $targetDisk, $sourcePath);
+
+        $this->fileTransfer->copy($sourceDisk, $sourcePath, $targetDisk, $targetPath, $media->visibility);
+
+        $cleanup = $this->files->originalIsShared($media) ? [] : [[$sourceDisk, $sourcePath]];
+
+        foreach ($this->followingVariants($media, $sourceDisk) as $name) {
+            $path = $media->getPath($name);
+
+            $this->fileTransfer->copy($sourceDisk, $path, $targetDisk, $path, $media->visibility);
+            $cleanup[] = [$sourceDisk, $path];
+        }
+
+        return [$targetPath, $cleanup];
+    }
+
+    /** Re-record the variants that followed the original onto the target disk. */
+    private function followOriginal(Media $media, string $sourceDisk, string $targetDisk): void
+    {
+        $records = $media->generatedVariants();
+
+        foreach ($this->followingVariants($media, $sourceDisk) as $name) {
+            $media->recordGeneratedVariant($name, $records[$name]->onDisk($targetDisk));
+        }
+    }
+
+    /**
+     * The variants that move with the original: those written to its disk when the media has no
+     * separate variants disk.
+     *
+     * @return list<string>
+     */
+    private function followingVariants(Media $media, string $sourceDisk): array
+    {
+        if ($media->variants_disk !== null) {
             return [];
         }
 
-        $this->fileTransfer->copy($sourceDisk, $media->getPath(), $targetDisk, $media->getPath(), $media->visibility);
+        $names = [];
 
-        $cleanup = $sourceShared ? [] : [[$sourceDisk, $media->getPath()]];
-
-        // Variants that lived on the original disk (variants_disk === null) follow the original.
-        if ($media->variants_disk === null) {
-            foreach ($this->variantPaths($media) as $path) {
-                $this->fileTransfer->copy($sourceDisk, $path, $targetDisk, $path, $media->visibility);
-                $cleanup[] = [$sourceDisk, $path];
+        foreach ($media->generatedVariants() as $name => $variant) {
+            if ($variant->disk === $sourceDisk) {
+                $names[] = $name;
             }
         }
 
-        return $cleanup;
-    }
-
-    /** The original's path on the target disk — the same relative path it had on the source disk. */
-    private function pathOnTargetDisk(Media $media): string
-    {
-        return $media->getPath();
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function variantPaths(Media $media): array
-    {
-        $paths = [];
-
-        foreach (array_keys($media->generated_variants ?? []) as $name) {
-            $paths[] = $media->getPath((string) $name);
-        }
-
-        return $paths;
+        return $names;
     }
 
     private function rehome(Media $media, HasMedia|Model|null $toModel, string $bucket): void

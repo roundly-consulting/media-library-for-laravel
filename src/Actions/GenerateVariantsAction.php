@@ -8,17 +8,20 @@ use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\GeneratedVariant;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\ManipulationSet;
 use RoundlyConsulting\MediaLibrary\Events\VariantHasBeenGenerated;
 use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenGenerated;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
+use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 
 /**
  * Generates image derivatives ("variants") for a {@see Media} through the active
  * {@see ImageDriver}, writing each to the resolved variants disk under
- * `{uuid}/variants/{name}.{ext}` and recording `generated_variants[name] = true`.
+ * `{uuid}/variants/{name}.{ext}` and recording what was written — file name, format and disk — in
+ * `generated_variants[name]`, so reads never have to re-derive (and mis-derive) the file.
  *
  * @internal building block — renders exactly the definitions it is handed. Hosts regenerate with
  *           `MediaLibrary::variants($media)->regenerate()` ({@see RegenerateVariantsAction}).
@@ -68,14 +71,20 @@ final class GenerateVariantsAction
             $media->disk,
         );
 
-        $path = $this->pathGenerator->getPathForVariants($media)
-            .$this->fileNamer->variantFileName($variant->name, $manipulations->format);
+        $fileName = FileNames::sanitize($this->fileNamer->variantFileName($variant->name, $manipulations->format));
+        $path = $this->pathGenerator->getPathForVariants($media).$fileName;
 
         Storage::disk($disk)->put($path, $bytes, ['visibility' => $media->visibility]);
 
-        $variants = $media->generated_variants ?? [];
-        $variants[$variant->name] = true;
-        $media->generated_variants = $variants;
+        // A re-render that lands elsewhere (the definition's format or disk changed) must not leave
+        // the previous file behind with nothing pointing at it.
+        $previous = $media->generatedVariant($variant->name);
+
+        if ($previous !== null && ($previous->disk !== $disk || $previous->fileName !== $fileName)) {
+            Storage::disk($previous->disk)->delete($this->pathGenerator->getPathForVariants($media).$previous->fileName);
+        }
+
+        $media->recordGeneratedVariant($variant->name, new GeneratedVariant($fileName, $manipulations->format, $disk));
 
         event(new VariantHasBeenGenerated($media, $variant->name));
     }

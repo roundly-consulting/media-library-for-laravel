@@ -68,6 +68,18 @@ final class TestUser extends Model implements HasMedia
             ->responsiveWidths([16])
             ->responsiveFormat('webp');
 
+        // A variant pinned to its own disk, so reads and deletes must follow the recorded disk.
+        $this->addMediaBucket('stored')
+            ->useDisk('public')
+            ->registerVariants(function (VariantRegistrar $v): void {
+                $v->add('thumb')->width(8)->format('png')->storeOnDisk('s3');
+            });
+
+        // Private media on the non-web-served local disk.
+        $this->addMediaBucket('vault')
+            ->useDisk('secure')
+            ->private();
+
         // Fully-constrained bucket used to derive validation rules from its definition.
         $this->addMediaBucket('documents')
             ->useDisk('public')

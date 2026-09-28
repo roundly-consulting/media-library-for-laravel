@@ -15,8 +15,8 @@ function dedupUser(string $name = 'Jane'): TestUser
 it('stores identical bytes once for the same disk and visibility', function (): void {
     $user = dedupUser();
 
-    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
-    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
+    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
+    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
 
     // Two distinct rows...
     expect($a->id)->not->toBe($b->id)
@@ -36,8 +36,8 @@ it('stores identical bytes once for the same disk and visibility', function (): 
 it('stores a fresh copy on a different disk', function (): void {
     $user = dedupUser();
 
-    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery', 'public');
-    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery', 'cold');
+    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery', 'public');
+    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery', 'cold');
 
     expect($b->checksum)->toBe($a->checksum)
         ->and($b->disk)->toBe('cold');
@@ -51,9 +51,8 @@ it('stores a fresh copy on a different disk', function (): void {
 it('stores a fresh copy for a different visibility', function (): void {
     $user = dedupUser();
 
-    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
+    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
     $b = $user->addMedia(__DIR__.'/../files/pixel.png')
-        ->preservingOriginal()
         ->withVisibility('private')
         ->toMediaBucket('gallery');
 
@@ -70,8 +69,8 @@ it('stores a fresh copy when dedup is disabled', function (): void {
 
     $user = dedupUser();
 
-    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
-    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
+    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
+    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
 
     expect($b->getPath())->not->toBe($a->getPath());
     expect(Storage::disk('public')->allFiles())->toHaveCount(2);
@@ -80,8 +79,8 @@ it('stores a fresh copy when dedup is disabled', function (): void {
 it('keeps the shared original until the last referrer is deleted', function (): void {
     $user = dedupUser();
 
-    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
-    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
+    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
+    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
 
     $shared = $a->getPath();
 
@@ -113,8 +112,8 @@ it('removes the original when a sole referrer is deleted', function (): void {
 it('copies a still-shared original on move instead of deleting the source', function (): void {
     $user = dedupUser();
 
-    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
-    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->preservingOriginal()->toMediaBucket('gallery');
+    $a = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
+    $b = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
 
     $sharedPath = $a->getPath();
 
@@ -144,8 +143,8 @@ it('keeps variants per-row even when originals are deduped', function (): void {
 
     // The `covers` bucket generates a `small` variant; identical originals dedup the original
     // but each row generates its own variants under its own uuid.
-    $a = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('covers');
-    $b = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('covers');
+    $a = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('covers');
+    $b = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('covers');
 
     expect($b->getPath())->toBe($a->getPath());
     expect($a->getPath('small'))->not->toBe($b->getPath('small'));

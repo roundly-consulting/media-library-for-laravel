@@ -11,8 +11,9 @@ use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
 
 /**
- * Relocates only a {@see Media}'s generated variant files onto another disk; the original, the
- * owner and the bucket stay put. Variants are always per-row, so no refcount guard applies.
+ * Relocates only a {@see Media}'s generated variant files onto another disk — every variant,
+ * wherever it was written (a per-variant `storeOnDisk()` included); the original, the owner and
+ * the bucket stay put. Variants are always per-row, so no refcount guard applies.
  *
  * Storing the variants on the original's own disk records `variants_disk` as null again.
  */
@@ -27,14 +28,15 @@ final class MoveMediaVariantsAction
     {
         $this->diskResolver->ensureDiskExists($disk);
 
-        $sourceDisk = $media->variants_disk ?? $media->disk;
-
-        if ($sourceDisk !== $disk) {
-            foreach (array_keys($media->generated_variants ?? []) as $name) {
-                $path = $media->getPath((string) $name);
-
-                $this->fileTransfer->move($sourceDisk, $path, $disk, $path, $media->visibility);
+        foreach ($media->generatedVariants() as $name => $variant) {
+            if ($variant->disk === $disk) {
+                continue;
             }
+
+            $path = $media->getPath($name);
+
+            $this->fileTransfer->move($variant->disk, $path, $disk, $path, $media->visibility);
+            $media->recordGeneratedVariant($name, $variant->onDisk($disk));
         }
 
         DB::transaction(static function () use ($media, $disk): void {

@@ -17,7 +17,7 @@ it('keeps id, uuid, and url while swapping the bytes', function (): void {
     Event::fake([MediaHasBeenReplaced::class]);
 
     $user = replaceUser();
-    $media = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('covers');
+    $media = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('covers');
 
     $originalId = $media->id;
     $originalUuid = $media->uuid;
@@ -42,7 +42,7 @@ it('keeps id, uuid, and url while swapping the bytes', function (): void {
 
 it('recomputes placeholders on replace', function (): void {
     $user = replaceUser();
-    $media = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('covers');
+    $media = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('covers');
 
     $before = $media->placeholder();
 
@@ -54,7 +54,7 @@ it('recomputes placeholders on replace', function (): void {
 
 it('regenerates variants on replace', function (): void {
     $user = replaceUser();
-    $media = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('covers');
+    $media = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('covers');
 
     expect($media->hasGeneratedVariant('small'))->toBeTrue();
     $oldVariantBytes = Storage::disk('public')->get($media->getPath('small'));
@@ -72,8 +72,8 @@ it('refcount-guards the old shared original on replace', function (): void {
     $user = replaceUser();
 
     // Two rows share one physical original via dedup.
-    $a = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('gallery');
-    $b = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('gallery');
+    $a = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('gallery');
+    $b = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('gallery');
 
     $sharedPath = $a->getPath();
     expect($b->getPath())->toBe($sharedPath);
@@ -130,8 +130,8 @@ it('stores a fresh original on replace when dedup is disabled', function (): voi
 
     $user = replaceUser();
 
-    $canonical = $user->addMedia(__DIR__.'/../files/sunrise.png')->preservingOriginal()->toMediaBucket('gallery');
-    $target = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('gallery');
+    $canonical = $user->addMedia(__DIR__.'/../files/sunrise.png')->toMediaBucket('gallery');
+    $target = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('gallery');
 
     $target->replace(__DIR__.'/../files/sunrise.png');
 
@@ -143,8 +143,8 @@ it('stores a fresh original on replace when dedup is disabled', function (): voi
 it('reuses an existing canonical file when replacing with already-stored bytes', function (): void {
     $user = replaceUser();
 
-    $canonical = $user->addMedia(__DIR__.'/../files/sunrise.png')->preservingOriginal()->toMediaBucket('gallery');
-    $target = $user->addMedia(__DIR__.'/../files/wide.png')->preservingOriginal()->toMediaBucket('gallery');
+    $canonical = $user->addMedia(__DIR__.'/../files/sunrise.png')->toMediaBucket('gallery');
+    $target = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('gallery');
 
     $targetOldPath = $target->getPath();
 

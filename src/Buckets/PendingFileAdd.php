@@ -31,8 +31,6 @@ final class PendingFileAdd
 
     private ?string $visibility = null;
 
-    private bool $preserveOriginal = false;
-
     private ?string $queue = null;
 
     private bool $draft = false;
@@ -78,13 +76,6 @@ final class PendingFileAdd
     public function withVisibility(string $visibility): self
     {
         $this->visibility = $visibility;
-
-        return $this;
-    }
-
-    public function preservingOriginal(bool $preserve = true): self
-    {
-        $this->preserveOriginal = $preserve;
 
         return $this;
     }
@@ -159,7 +150,6 @@ final class PendingFileAdd
             diskOverride: $disk,
             variantsDiskOverride: $this->variantsDiskOverride,
             visibility: $this->visibility,
-            preserveOriginal: $this->preserveOriginal,
             customProperties: $this->customProperties,
             queue: $this->queue,
             draft: $this->draft,
