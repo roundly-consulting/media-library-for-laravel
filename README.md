@@ -224,61 +224,184 @@ final class User extends Model implements HasMedia
 
 ### Adding media
 
-Every `addMedia*` method returns a `PendingFileAdd` builder; a terminal `toMediaBucket()` writes
-the file and returns the `Media`:
+Everything goes through the `MediaLibrary` facade. `MediaLibrary::for($model)` scopes adds and
+reads to one owner; every `add*` method returns a `PendingFileAdd` builder, and the terminal
+`toBucket()` writes the file and returns the `Media`:
 
 ```php
-$user->addMedia($request->file('avatar'))->toMediaBucket('avatar');        // UploadedFile or path
-$user->addMediaFromRequest('avatar')->toMediaBucket('avatar');             // request file by key
-$user->addMultipleMediaFromRequest(['a', 'b']);                            // returns PendingFileAdd[]
-$user->addMediaFromUrl('https://example.com/poster.png')->toMediaBucket('gallery');
-$user->addMediaFromDisk('incoming/doc.pdf', 's3')->toMediaBucket('gallery');
-$user->addMediaFromString($bytes)->usingFileName('note.txt')->toMediaBucket('gallery');
-$user->addMediaFromBase64($base64)->toMediaBucket('gallery');
-$user->addMediaFromStream($resource)->usingFileName('upload.bin')->toMediaBucket('gallery');
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
+
+$media = MediaLibrary::for($user);
+
+$media->add($request->file('avatar'))->toBucket('avatar');            // UploadedFile or local path
+$media->addFromRequest('avatar')->toBucket('avatar');                 // request upload by key
+$media->addFromUrl('https://example.com/poster.png')->toBucket('gallery');
+$media->addFromDisk('incoming/doc.pdf', 's3')->toBucket('gallery');
+$media->addFromString($bytes)->usingFileName('note.txt')->toBucket('gallery');
+$media->addFromBase64($base64)->toBucket('gallery');
+$media->addFromStream($resource)->usingFileName('upload.bin')->toBucket('gallery');
+```
+
+The `InteractsWithMedia` trait offers the same adds on the model itself — they go through the
+facade's manager, so everything below (including `MediaLibrary::fake()`) applies to them too:
+
+```php
+$user->addMedia($request->file('avatar'))->toMediaBucket('avatar');
+$user->addMediaFromRequest('avatar')->toMediaBucket('avatar');
+$user->addMultipleMediaFromRequest(['a', 'b']);                       // PendingFileAdd[] (keys without a file skipped)
+$user->addMediaFromUrl($url);  $user->addMediaFromDisk($path, 's3');
+$user->addMediaFromString($bytes);  $user->addMediaFromBase64($b64);  $user->addMediaFromStream($resource);
 ```
 
 ### The `PendingFileAdd` builder
 
 ```php
-$media = $user->addMedia($request->file('avatar'))
+$media = MediaLibrary::for($user)->add($request->file('avatar'))
     ->usingName('Profile photo')                 // display name
     ->usingFileName('avatar.jpg')                // stored filename
     ->withCustomProperties(['alt' => 'Jane'])    // arbitrary metadata
     ->withProperty('source', 'signup')           // one property at a time
+    ->useDisk('cold')                            // override the bucket/config original disk
     ->storingVariantsOnDisk('hot')               // override the bucket/config variants disk
     ->withVisibility('private')                  // override the bucket default
     ->preservingOriginal()                       // copy the source instead of moving it
     ->onQueue('media')                           // queue any queued variants on this queue
-    ->toMediaBucket('avatar', 'cold');           // terminal: returns Media (optional disk override)
+    ->asDraft()                                  // store as an unbound draft (see Drafts)
+    ->toBucket('avatar');                        // terminal: returns Media (`toMediaBucket()` is the same)
 ```
 
 The terminal call validates the file (mime allowlist, size, existence) and throws a typed
 exception — `FileUnacceptableForBucket`, `FileDoesNotExist`, or `DiskDoesNotExist` — on failure.
 
-### Reading media
+### Reading and deleting
 
 ```php
-$user->getMedia('avatar');                       // Collection<Media>, ordered
-$user->getFirstMedia('avatar');                  // ?Media
-$user->getFirstMediaUrl('avatar');               // public URL, the bucket fallback, or ''
-$user->getFirstMediaUrl('avatar', 'thumb');      // a variant's URL
-$user->hasMedia('avatar');                       // bool
-$user->clearMediaBucket('avatar');               // delete every media in the bucket
+$media = MediaLibrary::for($user);
+
+$media->get('avatar');                           // Collection<Media>, ordered
+$media->first('avatar');                         // ?Media
+$media->has('avatar');                           // bool
+$media->find($uuid);                             // ?Media — only if this user owns it
+$media->url('avatar');                           // first URL, the bucket fallback, or ''
+$media->url('avatar', 'thumb');                  // a variant's URL
+$media->temporaryUrl('avatar', expiry: now()->addMinutes(10));
+$media->clear('avatar');                         // delete every media in the bucket; returns the count
+$media->delete($photo);                          // throws MediaDoesNotBelongToModel for someone else's media
 ```
 
-Store global media (no owning model) via the `Media` facade:
+The scope is a security boundary: `find()` returns null and `delete()` throws
+`MediaDoesNotBelongToModel` for media that is global or belongs to another model, so a controller
+can safely resolve `MediaLibrary::for($request->user())->find($uuid)`.
+
+The trait mirrors the readers: `getMedia()`, `getFirstMedia()`, `getFirstMediaUrl()`,
+`getFirstTemporaryUrl()`, `hasMedia()` and `clearMediaBucket()`.
+
+### Global media (no owner)
+
+The flat `add*` methods store media with no owning model:
 
 ```php
-use RoundlyConsulting\MediaLibrary\Facades\Media;
-
-$logo = Media::add(storage_path('brand/logo.svg'))
+$logo = MediaLibrary::add(storage_path('brand/logo.svg'))
     ->usingName('Primary logo')
     ->toBucket('brand');
 
-Media::bucket('brand')->get();
-Media::find($logo->uuid);
+MediaLibrary::bucket('brand')->get();            // Builder<Media> over a global bucket
+MediaLibrary::find($logo->uuid);                 // any media by uuid
+MediaLibrary::clearBucket('brand');              // delete the global bucket; returns the count
 ```
+
+### The whole facade
+
+| Method | Returns | Does |
+|---|---|---|
+| `add($file)`, `addFromUrl()`, `addFromDisk()`, `addFromString()`, `addFromBase64()`, `addFromStream()` | `PendingFileAdd` | Start a global add. |
+| `draft($file)` | `PendingFileAdd` | Start a global draft add (see Drafts). |
+| `for($model)` | `ModelMedia` | Owner-scoped `add*`, `bindDraft()`, `attach()`, `get()`, `first()`, `has()`, `find()`, `url()`, `temporaryUrl()`, `clear()`, `delete()`. |
+| `attach($media, to: ?Model, bucket:)` | `Media` | Attach by reference (zero bytes copied); `to: null` = a global bucket. |
+| `bindDraft($token, to: $model, bucket:)` | `Media` | Bind a draft to an owner. |
+| `move($media, to: ?Model, bucket:, disk:)` | `Media` | Re-home and/or move across disks. |
+| `moveToDisk($media, $disk)` / `moveVariantsToDisk($media, $disk)` | `Media` | Move the files, or only the variants, to another disk. |
+| `copy($media, to: ?Model, bucket:, disk:)` | `Media` | Duplicate into a new row (fresh uuid). |
+| `replace($media, $file)` | `Media` | New bytes, same id/uuid/URL. |
+| `delete($media)` | `void` | Delete the row and its files (refcount-guarded). |
+| `variants($media)` | `MediaVariants` | `all()`, `generated()`, `missing()`, `regenerate(only:, force:)`. |
+| `regenerate($media, only: [], force: false)` | `list<string>` | Re-render variants; returns the names rendered. |
+| `pruneDrafts()` | `int` | Delete expired, never-bound drafts. |
+| `rulesFor(Model::class, $bucket)` | `list<string>` | Validation rules from a bucket definition. |
+| `bucket($bucket)` / `find($uuid)` / `clearBucket($bucket)` | `Builder` / `?Media` / `int` | Global reads and clear. |
+
+The `Media` model's own `move()`, `copy()`, `moveToDisk()`, `moveVariantsToDisk()`, `replace()`
+and `deleteWithFiles()` are shorthands for the flat verbs above.
+
+### Without the facade
+
+Inject `MediaLibraryManager` — the facade's root — and call the same API:
+
+```php
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
+
+final class AvatarController
+{
+    public function __construct(private MediaLibraryManager $media) {}
+
+    public function store(Request $request): Media
+    {
+        return $this->media->for($request->user())->addFromRequest('avatar')->toBucket('avatar');
+    }
+}
+```
+
+Or resolve the action behind a verb directly:
+
+```php
+use RoundlyConsulting\MediaLibrary\Actions\MoveMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\RegenerateVariantsAction;
+
+app(MoveMediaAction::class)->execute($media, $otherUser, 'gallery', 'cold');
+app(RegenerateVariantsAction::class)->execute($media, only: ['thumb'], force: true);
+```
+
+The host-facing actions are `AddMediaAction`, `AttachMediaAction`, `BindDraftMediaAction`,
+`MoveMediaAction`, `MoveMediaVariantsAction`, `CopyMediaAction`, `ReplaceMediaAction`,
+`DeleteMediaAction`, `RegenerateVariantsAction` and `PruneDraftsAction`. `GenerateVariantsAction`
+is an internal building block (it renders exactly the definitions it is handed). Calling an
+action directly bypasses `MediaLibrary::fake()`.
+
+### Testing your app with `MediaLibrary::fake()`
+
+```php
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
+
+$fake = MediaLibrary::fake();
+
+$this->post('/profile/avatar', ['avatar' => UploadedFile::fake()->image('me.png')]);
+
+$fake->assertAdded('avatar', to: $user);
+$fake->assertNothingDeleted();
+```
+
+The fake writes nothing — no file on any disk, no row, no queued job, no event — so a test needs
+neither real disks nor `Storage::fake()`. It records every call, whether it came through the
+facade, an injected `MediaLibraryManager`, a `for()` handle, the `InteractsWithMedia` trait or a
+`Media` model method. Mutations still return something realistic: adds, attaches and copies return
+an unsaved `Media` with a fresh uuid, owner, bucket, disk and visibility; moves re-point the media
+in memory. Bucket acceptance rules still apply to adds, and an unknown or expired draft token still
+throws. Reads run against the database as usual.
+
+| Assert | Passes when |
+|---|---|
+| `assertAdded(?bucket, ?to)` / `assertNothingAdded()` | Media was (not) added. |
+| `assertAttached(?media, ?to, ?bucket)` / `assertNothingAttached()` | Media was (not) attached by reference. |
+| `assertDraftBound(?token, ?to, ?bucket)` / `assertNothingBound()` | A draft was (not) bound. |
+| `assertMoved(?media, ?to, ?bucket, ?disk)` / `assertNothingMoved()` | `move()` / `moveToDisk()` was (not) called. |
+| `assertVariantsMoved(?media, ?disk)` / `assertNoVariantsMoved()` | `moveVariantsToDisk()` was (not) called. |
+| `assertCopied(?media, ?to, ?bucket, ?disk)` / `assertNothingCopied()` | Media was (not) copied. |
+| `assertReplaced(?media)` / `assertNothingReplaced()` | Media was (not) replaced. |
+| `assertDeleted(?media)` / `assertNothingDeleted()` | Media was (not) deleted — `clear()` records one delete per media. |
+| `assertRegenerated(?media, ?only, ?force)` / `assertNothingRegenerated()` | Variants were (not) regenerated. |
+| `assertDraftsPruned()` / `assertDraftsNotPruned()` | `pruneDrafts()` / `media:prune-drafts` did (not) run. |
+
+Every argument is an optional filter; `null` matches anything.
 
 ## Image variants
 
@@ -353,6 +476,21 @@ the add's `storingVariantsOnDisk()`, then the bucket's `storingVariantsOnDisk()`
 
 `VariantHasBeenGenerated` fires per variant and `VariantsHaveBeenGenerated` once all of an
 add's variants are done — listen for either to react to generated derivatives.
+
+### Inspecting and regenerating variants
+
+```php
+$variants = MediaLibrary::variants($media);
+
+$variants->all();                                   // list<Variant> — every definition that applies
+$variants->generated();                             // ['thumb']
+$variants->missing();                               // ['display']
+$variants->regenerate();                            // render the missing ones → ['display']
+$variants->regenerate(only: ['thumb'], force: true); // re-render thumb even though it exists
+```
+
+`MediaLibrary::regenerate($media, only:, force:)` is the same verb flat, and `media:regenerate`
+runs it over many media. Global media has no owning bucket, so it has no variants.
 
 ### Un-generated variants
 
@@ -506,28 +644,32 @@ rollback never orphans the row from its files.
 
 ```php
 // Move the original (and same-disk variants) to another disk.
-$media->moveToDisk('cold');
+MediaLibrary::moveToDisk($media, 'cold');
 
 // Move only the variant files to another disk; the original stays put.
-$media->moveVariantsToDisk('hot');
+MediaLibrary::moveVariantsToDisk($media, 'hot');
 
 // Re-home to a different model and bucket (deletes the source files).
-$media->move($otherUser, 'gallery');
+MediaLibrary::move($media, to: $otherUser, bucket: 'gallery');
 
 // Move a model's media to global storage (no owner).
-$media->move(null, 'brand');
+MediaLibrary::move($media, to: null, bucket: 'brand');
 
 // Copy instead of move: a new row with a fresh UUID, source preserved.
+$copy = MediaLibrary::copy($media, to: $otherUser, bucket: 'gallery', disk: 'cold');
+
+// The same verbs on the model:
+$media->moveToDisk('cold');
+$media->move($otherUser, 'gallery');
 $copy = $media->copy($otherUser, 'gallery', 'cold');
 ```
 
 Both fire events — `MediaHasBeenMoved` after a move, and `MediaHasBeenAdded` for the new row a
-copy creates. `MoveMediaAction`, `CopyMediaAction` and `DeleteMediaAction` are resolvable from the
-container if you prefer calling them directly.
+copy creates.
 
-To permanently delete a media with its files, use `deleteWithFiles()` (or the
-`DeleteMediaAction`). A plain `delete()` is a soft delete and **keeps** the files so a restore
-stays lossless; only a force delete (or `deleteWithFiles()`) removes them, which fires
+To permanently delete a media with its files, use `MediaLibrary::delete($media)` (or
+`$media->deleteWithFiles()`). A plain Eloquent `delete()` is a soft delete and **keeps** the files
+so a restore stays lossless; only a force delete (or the delete verb) removes them, which fires
 `MediaHasBeenDeleted`.
 
 ## Deduplication & integrity
@@ -577,21 +719,22 @@ an ordinary media row with no owner, a generated `draft_token`, and a `draft_exp
 (default 24h, `media.drafts.ttl`). Variants and placeholders are still computed on add.
 
 ```php
-use RoundlyConsulting\MediaLibrary\Facades\Media;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 
 // Upload step — no model yet. Hand the token back to the client.
-$draft = Media::draft($request->file('avatar'))->toBucket('avatar');
+$draft = MediaLibrary::draft($request->file('avatar'))->toBucket('avatar');
 $token = $draft->draft_token;
 
-// The model trait builder can also stage a draft:
-$user->addMedia($file)->asDraft()->toMediaBucket('avatar');
-
 // When the form is submitted and the model is saved, bind by token:
-$user->attachDraftMedia($token, 'avatar');   // sets the owner, clears the token
+MediaLibrary::for($user)->bindDraft($token, 'avatar');   // sets the owner, clears the token
+// …or the flat verb, or the trait shorthand:
+MediaLibrary::bindDraft($token, to: $user, bucket: 'avatar');
+$user->attachDraftMedia($token, 'avatar');
 ```
 
 Binding throws `DraftMediaNotFound` (unknown / already-bound token) or `DraftMediaExpired` (past
-TTL). Schedule `media:prune-drafts` to delete expired, never-bound drafts.
+TTL). Delete expired, never-bound drafts with `MediaLibrary::pruneDrafts()` (returns the count)
+or schedule `media:prune-drafts`.
 
 `RoundlyConsulting\MediaLibrary\Events\DraftMediaHasBeenBound` fires after a successful bind.
 
@@ -611,7 +754,7 @@ $this->addMediaBucket('avatar')
 public function rules(): array
 {
     return [
-        'avatar' => Media::rulesFor(User::class, 'avatar'),
+        'avatar' => MediaLibrary::rulesFor(User::class, 'avatar'),
         // ['file', 'mimetypes:image/jpeg,image/png,image/webp', 'max:5120',
         //  'dimensions:min_width=100,min_height=100,max_width=4096,max_height=4096']
     ];
@@ -630,7 +773,8 @@ links and embeds keep working. The checksum, size, mime type, extension, dimensi
 placeholders are recomputed and variants are regenerated.
 
 ```php
-$media->replace($request->file('avatar'));   // same id/uuid/url, new bytes
+MediaLibrary::replace($media, $request->file('avatar'));   // same id/uuid/url, new bytes
+$media->replace($request->file('avatar'));                 // the model shorthand
 ```
 
 Dedup is respected on both sides: the old original is only physically removed when no other row
@@ -644,8 +788,11 @@ that shares the same stored original on the same `(disk, visibility)`, copying *
 target bucket's variants are generated fresh for the new row.
 
 ```php
-$logo = Media::bucket('brand')->first();
-$user->attachMedia($logo, 'avatar');          // new row, same file, no copy
+$logo = MediaLibrary::bucket('brand')->first();
+
+MediaLibrary::for($user)->attach($logo, 'avatar');         // new row, same file, no copy
+MediaLibrary::attach($logo, bucket: 'shared');             // …or into another global bucket
+$user->attachMedia($logo, 'avatar');                       // the trait shorthand
 ```
 
 The shared original stays refcount-guarded: it survives until the last referrer is deleted or moved
@@ -689,7 +836,7 @@ Every lifecycle step dispatches an event under
 | `MediaHasBeenMoved` | Media is moved across disks, models, or buckets. |
 | `MediaHasBeenReplaced` | A media's original is replaced in place. |
 | `DraftMediaHasBeenBound` | A draft media is bound to its owning model. |
-| `MediaHasBeenDeleted` | A media is permanently deleted (force delete / `deleteWithFiles()`). |
+| `MediaHasBeenDeleted` | A media is permanently deleted — `MediaLibrary::delete()` / `deleteWithFiles()`, once per media on a bucket clear, a draft prune or `media:clear`. |
 
 ## Testing
 
