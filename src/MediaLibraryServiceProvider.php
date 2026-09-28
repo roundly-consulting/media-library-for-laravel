@@ -44,8 +44,8 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
     {
         parent::register();
 
-        $this->app->singleton(MediaManager::class);
-        $this->app->alias(MediaManager::class, 'media');
+        $this->app->singleton(MediaLibraryManager::class);
+        $this->app->alias(MediaLibraryManager::class, 'media');
 
         $this->bindSeamFromConfig(PathGenerator::class, 'media.path_generator');
         $this->bindSeamFromConfig(FileNamer::class, 'media.file_namer');

@@ -11,6 +11,11 @@ final class FileDoesNotExist extends MediaLibraryException
         return new self("The file at path [{$path}] does not exist or is not readable.");
     }
 
+    public static function inRequest(string $key): self
+    {
+        return new self("The request carries no uploaded file under [{$key}].");
+    }
+
     public static function onDisk(string $path, string $disk): self
     {
         return new self("The file [{$path}] does not exist on disk [{$disk}].");

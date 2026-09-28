@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Storage;
-use RoundlyConsulting\MediaLibrary\Facades\Media as MediaFacade;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\CustomMedia;
@@ -40,9 +40,9 @@ it('reads the media relation through the configured model', function (): void {
 });
 
 it('serves global media through the configured model', function (): void {
-    MediaFacade::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
+    MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
 
-    expect(MediaFacade::bucket('brand')->first())->toBeInstanceOf(CustomMedia::class);
+    expect(MediaLibrary::bucket('brand')->first())->toBeInstanceOf(CustomMedia::class);
 });
 
 // The bug this pins: `AddMediaAction::clearBucket()` queried the PACKAGED model, so the rows it
@@ -74,7 +74,7 @@ it('numbers the order column from the configured model', function (): void {
 
 it('attaches and copies through the configured model', function (): void {
     $user = TestUser::query()->create(['name' => 'Ada']);
-    $global = MediaFacade::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
+    $global = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
 
     $attached = $user->attachMedia($global, 'gallery');
     $copy = $attached->copy($user, 'gallery');
@@ -115,13 +115,13 @@ it('honours a host media model through every add and read flow', function (): vo
 
         // The real flows a host uses: an owned add, a global add, and the reads back.
         $owned = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
-        $global = MediaFacade::add(__DIR__.'/../files/wide.png')->toBucket('brand');
+        $global = MediaLibrary::add(__DIR__.'/../files/wide.png')->toBucket('brand');
 
         return [
             $owned,
             $global,
             $user->getFirstMedia('gallery'),
-            ...MediaFacade::bucket('brand')->get()->all(),
+            ...MediaLibrary::bucket('brand')->get()->all(),
         ];
     });
 });

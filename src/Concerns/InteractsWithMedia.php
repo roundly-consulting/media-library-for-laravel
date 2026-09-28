@@ -4,17 +4,15 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Concerns;
 
-use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
-use RoundlyConsulting\MediaLibrary\Actions\AttachMediaAction;
-use RoundlyConsulting\MediaLibrary\Actions\BindDraftMediaAction;
-use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
+use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Relations\MediaMorphMany;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
@@ -25,6 +23,9 @@ use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
 /**
  * Opt-in media behaviour for Eloquent models: the `media()` relation, fluent file adders,
  * bucket declarations, and convenience readers.
+ *
+ * The adders, readers and mutators are sugar over `MediaLibrary::for($this)` — they go through
+ * the manager, so a host's container overrides and `MediaLibrary::fake()` see them.
  *
  * @mixin Model
  */
@@ -120,18 +121,17 @@ trait InteractsWithMedia
 
     public function addMedia(string|UploadedFile $file): PendingFileAdd
     {
-        return $this->fileAdderFactory()->fromFile($this, $file);
+        return $this->mediaLibrary()->add($file);
     }
 
     public function addMediaFromRequest(string $key): PendingFileAdd
     {
-        /** @var UploadedFile $file */
-        $file = request()->file($key);
-
-        return $this->fileAdderFactory()->fromFile($this, $file);
+        return $this->mediaLibrary()->addFromRequest($key);
     }
 
     /**
+     * One pending add per key that carries an uploaded file; keys without one are skipped.
+     *
      * @param  list<string>  $keys
      * @return list<PendingFileAdd>
      */
@@ -140,10 +140,8 @@ trait InteractsWithMedia
         $adders = [];
 
         foreach ($keys as $key) {
-            $file = request()->file($key);
-
-            if ($file instanceof UploadedFile) {
-                $adders[] = $this->fileAdderFactory()->fromFile($this, $file);
+            if (request()->file($key) instanceof UploadedFile) {
+                $adders[] = $this->mediaLibrary()->addFromRequest($key);
             }
         }
 
@@ -152,22 +150,22 @@ trait InteractsWithMedia
 
     public function addMediaFromUrl(string $url): PendingFileAdd
     {
-        return $this->fileAdderFactory()->fromUrl($this, $url);
+        return $this->mediaLibrary()->addFromUrl($url);
     }
 
     public function addMediaFromDisk(string $path, ?string $disk = null): PendingFileAdd
     {
-        return $this->fileAdderFactory()->fromDisk($this, $path, $disk);
+        return $this->mediaLibrary()->addFromDisk($path, $disk);
     }
 
     public function addMediaFromString(string $contents): PendingFileAdd
     {
-        return $this->fileAdderFactory()->fromString($this, $contents);
+        return $this->mediaLibrary()->addFromString($contents);
     }
 
     public function addMediaFromBase64(string $base64): PendingFileAdd
     {
-        return $this->fileAdderFactory()->fromBase64($this, $base64);
+        return $this->mediaLibrary()->addFromBase64($base64);
     }
 
     /**
@@ -175,29 +173,23 @@ trait InteractsWithMedia
      */
     public function addMediaFromStream($stream): PendingFileAdd
     {
-        return $this->fileAdderFactory()->fromStream($this, $stream);
+        return $this->mediaLibrary()->addFromStream($stream);
     }
 
     /** @return Collection<int, Media> */
     public function getMedia(string $bucket = 'default'): Collection
     {
-        return $this->media()->where('bucket_name', $bucket)->get();
+        return $this->mediaLibrary()->get($bucket);
     }
 
     public function getFirstMedia(string $bucket = 'default'): ?Media
     {
-        return $this->media()->where('bucket_name', $bucket)->first();
+        return $this->mediaLibrary()->first($bucket);
     }
 
     public function getFirstMediaUrl(string $bucket = 'default', string $variant = ''): string
     {
-        $media = $this->getFirstMedia($bucket);
-
-        if ($media !== null) {
-            return $media->getUrl($variant);
-        }
-
-        return $this->resolveMediaBucket($bucket)?->getFallbackUrl() ?? '';
+        return $this->mediaLibrary()->url($bucket, $variant);
     }
 
     /**
@@ -208,31 +200,18 @@ trait InteractsWithMedia
      */
     public function getFirstTemporaryUrl(string $bucket = 'default', string $variant = '', ?DateTimeInterface $expiry = null): string
     {
-        $media = $this->getFirstMedia($bucket);
-
-        if ($media !== null) {
-            return $media->getTemporaryUrl($expiry ?? $this->defaultTemporaryUrlExpiry(), $variant);
-        }
-
-        return $this->resolveMediaBucket($bucket)?->getFallbackUrl() ?? '';
-    }
-
-    private function defaultTemporaryUrlExpiry(): DateTimeInterface
-    {
-        $minutes = config('media.temporary_url_default_lifetime');
-        $minutes = is_numeric($minutes) ? (int) $minutes : 5;
-
-        return CarbonImmutable::now()->addMinutes($minutes);
+        return $this->mediaLibrary()->temporaryUrl($bucket, $variant, $expiry);
     }
 
     public function hasMedia(string $bucket = 'default'): bool
     {
-        return $this->media()->where('bucket_name', $bucket)->exists();
+        return $this->mediaLibrary()->has($bucket);
     }
 
+    /** Delete every media (rows and files) in one of this model's buckets. */
     public function clearMediaBucket(string $bucket = 'default'): void
     {
-        $this->getMedia($bucket)->each(fn (Media $media): mixed => $media->forceDelete());
+        $this->mediaLibrary()->clear($bucket);
     }
 
     /**
@@ -242,7 +221,7 @@ trait InteractsWithMedia
      */
     public function attachDraftMedia(string $token, string $bucket = 'default'): Media
     {
-        return app(BindDraftMediaAction::class)->execute($this, $token, $bucket);
+        return $this->mediaLibrary()->bindDraft($token, $bucket);
     }
 
     /**
@@ -252,11 +231,12 @@ trait InteractsWithMedia
      */
     public function attachMedia(Media $media, string $bucket = 'default'): Media
     {
-        return app(AttachMediaAction::class)->execute($media, $this, $bucket);
+        return $this->mediaLibrary()->attach($media, $bucket);
     }
 
-    private function fileAdderFactory(): FileAdderFactory
+    /** This model's handle on the (possibly faked) manager — every call above goes through it. */
+    private function mediaLibrary(): ModelMedia
     {
-        return app(FileAdderFactory::class);
+        return app(MediaLibraryManager::class)->for($this);
     }
 }

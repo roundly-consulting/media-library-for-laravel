@@ -19,6 +19,9 @@ use RoundlyConsulting\MediaLibrary\Variants\Variant;
  * Generates image derivatives ("variants") for a {@see Media} through the active
  * {@see ImageDriver}, writing each to the resolved variants disk under
  * `{uuid}/variants/{name}.{ext}` and recording `generated_variants[name] = true`.
+ *
+ * @internal building block — renders exactly the definitions it is handed. Hosts regenerate with
+ *           `MediaLibrary::variants($media)->regenerate()` ({@see RegenerateVariantsAction}).
  */
 final class GenerateVariantsAction
 {

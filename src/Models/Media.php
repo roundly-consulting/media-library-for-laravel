@@ -14,16 +14,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use RoundlyConsulting\MediaLibrary\Actions\CopyMediaAction;
-use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
-use RoundlyConsulting\MediaLibrary\Actions\MoveMediaAction;
-use RoundlyConsulting\MediaLibrary\Actions\ReplaceMediaAction;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
-use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Database\Factories\MediaFactory;
 use RoundlyConsulting\MediaLibrary\Exceptions\ChecksumMismatch;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Variants\ResponsiveImageGenerator;
@@ -233,36 +229,36 @@ class Media extends Model
      * Relocate this media (original + variants) — across disks, and/or to a different owning model
      * and bucket (including model ↔ global) — deleting the source files. Returns this media.
      */
-    public function move(HasMedia|Model|null $toModel = null, string $bucket = 'default', ?string $disk = null): self
+    public function move(?Model $to = null, string $bucket = 'default', ?string $disk = null): self
     {
-        return app(MoveMediaAction::class)->execute($this, $toModel, $bucket, $disk);
+        return $this->mediaLibrary()->move($this, $to, $bucket, $disk);
     }
 
     /**
      * Duplicate this media into a new row with a fresh uuid, optionally onto a different disk and/or
      * under a different owning model and bucket. The source files are preserved.
      */
-    public function copy(HasMedia|Model|null $toModel = null, string $bucket = 'default', ?string $disk = null): self
+    public function copy(?Model $to = null, string $bucket = 'default', ?string $disk = null): self
     {
-        return app(CopyMediaAction::class)->execute($this, $toModel, $bucket, $disk);
+        return $this->mediaLibrary()->copy($this, $to, $bucket, $disk);
     }
 
     /** Move only the original's bytes to another disk, keeping ownership and bucket. */
     public function moveToDisk(string $disk): self
     {
-        return app(MoveMediaAction::class)->toDisk($this, $disk);
+        return $this->mediaLibrary()->moveToDisk($this, $disk);
     }
 
     /** Move only the variant files to another disk; the original stays put. */
     public function moveVariantsToDisk(string $disk): self
     {
-        return app(MoveMediaAction::class)->variantsToDisk($this, $disk);
+        return $this->mediaLibrary()->moveVariantsToDisk($this, $disk);
     }
 
     /** Permanently delete this media: its row and its stored files (original + variants). */
     public function deleteWithFiles(): void
     {
-        app(DeleteMediaAction::class)->execute($this);
+        $this->mediaLibrary()->delete($this);
     }
 
     /**
@@ -272,7 +268,7 @@ class Media extends Model
      */
     public function replace(string|UploadedFile $file): self
     {
-        return app(ReplaceMediaAction::class)->execute($this, $file);
+        return $this->mediaLibrary()->replace($this, $file);
     }
 
     /**
@@ -551,6 +547,12 @@ class Media extends Model
         }
 
         return $headers;
+    }
+
+    /** The (possibly faked) manager every mutation above goes through. */
+    private function mediaLibrary(): MediaLibraryManager
+    {
+        return app(MediaLibraryManager::class);
     }
 
     private function urlGenerator(): UrlGenerator

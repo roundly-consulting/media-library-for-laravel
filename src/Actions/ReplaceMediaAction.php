@@ -39,7 +39,7 @@ final class ReplaceMediaAction
 
     public function execute(Media $media, string|UploadedFile $file): Media
     {
-        $source = $this->fileAdderFactory->fromFile(null, $file)->addedFile();
+        $source = $this->fileAdderFactory->fromFile($file);
 
         $oldPath = $media->getPath();
         $oldDisk = $media->disk;

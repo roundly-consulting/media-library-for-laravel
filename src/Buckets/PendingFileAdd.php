@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\MediaLibrary\Actions\AddMediaAction;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 
 /**
@@ -15,6 +16,8 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
  * before a terminal `toMediaBucket()` / `toBucket()` call persists the {@see Media} row.
  *
  * The same builder backs both model-bound media (non-null owner) and global media (null owner).
+ * The terminal hands its snapshot to the manager that built it, which runs {@see AddMediaAction}
+ * — so a faked manager records the add instead of storing it.
  */
 final class PendingFileAdd
 {
@@ -37,16 +40,12 @@ final class PendingFileAdd
     /** @var array<string, mixed> */
     private array $customProperties = [];
 
+    /** @internal built by {@see MediaLibraryManager} — start an add with `MediaLibrary::add()` or `MediaLibrary::for($model)->add()` */
     public function __construct(
+        private readonly MediaLibraryManager $manager,
         private readonly HasMedia|Model|null $owner,
         private readonly AddedFile $file,
     ) {}
-
-    /** The normalized source file backing this add (used by replace-in-place). */
-    public function addedFile(): AddedFile
-    {
-        return $this->file;
-    }
 
     public function usingName(string $name): self
     {
@@ -100,7 +99,8 @@ final class PendingFileAdd
 
     /**
      * Store this media as an unbound draft: the row gets a generated `draft_token` and a TTL
-     * `draft_expires_at`, with no owning model, until `attachDraftMedia()` binds it on save.
+     * `draft_expires_at`, with no owning model, until `MediaLibrary::for($model)->bindDraft()`
+     * binds it.
      */
     public function asDraft(): self
     {
@@ -145,7 +145,7 @@ final class PendingFileAdd
 
     private function persist(string $bucket, ?string $disk): Media
     {
-        return app(AddMediaAction::class)->execute($this->snapshot($bucket, $disk));
+        return $this->manager->store($this->snapshot($bucket, $disk));
     }
 
     private function snapshot(string $bucket, ?string $disk): PendingFileAddState

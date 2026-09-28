@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Actions\AttachMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
-use RoundlyConsulting\MediaLibrary\Facades\Media;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
 function attachUser(string $name = 'Jane'): TestUser
@@ -14,7 +14,7 @@ function attachUser(string $name = 'Jane'): TestUser
 }
 
 it('attaches global media to a model without copying bytes', function (): void {
-    $logo = Media::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
+    $logo = MediaLibrary::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
 
     $filesBefore = Storage::disk('public')->allFiles();
 
@@ -37,7 +37,7 @@ it('attaches global media to a model without copying bytes', function (): void {
 });
 
 it('generates the target bucket variants for the attached row', function (): void {
-    $logo = Media::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
+    $logo = MediaLibrary::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
 
     $user = attachUser();
     $attached = $user->attachMedia($logo, 'covers');
@@ -51,7 +51,7 @@ it('generates the target bucket variants for the attached row', function (): voi
 })->skip(fn (): bool => ! extension_loaded('imagick') && ! extension_loaded('gd'), 'No image driver available.');
 
 it('keeps the shared original until the last referrer is deleted', function (): void {
-    $logo = Media::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
+    $logo = MediaLibrary::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
 
     $user = attachUser();
     $attached = $user->attachMedia($logo, 'gallery');
@@ -68,7 +68,7 @@ it('keeps the shared original until the last referrer is deleted', function (): 
 });
 
 it('attaches a non-image global media into another global bucket without variants', function (): void {
-    $source = Media::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
+    $source = MediaLibrary::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
     // Pretend the source is a non-image so no variants are generated for the new row.
     $source->mime_type = 'application/pdf';
     $source->save();
@@ -84,7 +84,7 @@ it('attaches a non-image global media into another global bucket without variant
 });
 
 it('counts the attached row in the refcount on a move', function (): void {
-    $logo = Media::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
+    $logo = MediaLibrary::add(__DIR__.'/../files/wide.png')->preservingOriginal()->toBucket('brand');
 
     $user = attachUser();
     $attached = $user->attachMedia($logo, 'gallery');

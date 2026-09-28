@@ -16,7 +16,8 @@ use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
 /**
  * Relocates a {@see Media} — across disks, and/or to a different owning model and bucket
  * (including model → global and global → model) — moving the original and its generated
- * variants and re-pointing the row.
+ * variants and re-pointing the row. Moving only the variant files is
+ * {@see MoveMediaVariantsAction}.
  *
  * The DB update runs inside a transaction; the physical source files are deleted only after the
  * transaction commits, so a rollback never orphans the row from its files.
@@ -65,35 +66,6 @@ final class MoveMediaAction
         foreach ($cleanup as [$cleanupDisk, $cleanupPath]) {
             $this->fileTransfer->delete($cleanupDisk, $cleanupPath);
         }
-
-        event(new MediaHasBeenMoved($media));
-
-        return $media;
-    }
-
-    /** Move only the original's bytes to a new disk, keeping ownership and bucket. */
-    public function toDisk(Media $media, string $disk): Media
-    {
-        return $this->execute($media, $this->ownerOf($media), $media->bucket_name, $disk);
-    }
-
-    /** Move only the variant files to a new disk; the original stays put. */
-    public function variantsToDisk(Media $media, string $disk): Media
-    {
-        $this->diskResolver->ensureDiskExists($disk);
-
-        $sourceDisk = $media->variants_disk ?? $media->disk;
-
-        if ($sourceDisk !== $disk) {
-            foreach ($this->variantPaths($media) as $path) {
-                $this->fileTransfer->move($sourceDisk, $path, $disk, $path, $media->visibility);
-            }
-        }
-
-        DB::transaction(function () use ($media, $disk): void {
-            $media->variants_disk = $disk === $media->disk ? null : $disk;
-            $media->save();
-        });
 
         event(new MediaHasBeenMoved($media));
 
@@ -162,12 +134,5 @@ final class MoveMediaAction
             $media->model_type = null;
             $media->model_id = null;
         }
-    }
-
-    private function ownerOf(Media $media): ?Model
-    {
-        $owner = $media->model;
-
-        return $owner instanceof Model ? $owner : null;
     }
 }

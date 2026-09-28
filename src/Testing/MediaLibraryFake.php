@@ -1,0 +1,441 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\MediaLibrary\Testing;
+
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
+use PHPUnit\Framework\Assert;
+use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
+use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
+use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
+use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
+use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
+use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+
+/**
+ * The recording stand-in {@see MediaLibrary::fake()} swaps in.
+ *
+ * Nothing is performed: no file is written to or removed from any disk, no row is inserted,
+ * updated or deleted, no variant job is queued and no event fires — so a test needs neither a
+ * real disk nor `Storage::fake()`. Every mutation is recorded instead, from wherever it came:
+ * the facade, an injected manager, a `for()` handle, `variants()`, the `InteractsWithMedia`
+ * trait or a `Media` model method.
+ *
+ * Mutations still return something realistic: adds, attaches and copies return an unsaved
+ * {@see Media} carrying the attributes the real call would have stored (a fresh uuid, owner,
+ * bucket, disk, visibility, name); moves re-point the given media in memory; a bound draft is
+ * the recorded (or stored) draft, re-pointed in memory. Bucket acceptance rules still apply to
+ * adds, and an unknown or expired draft token still throws. Reads (`get()`, `find()`,
+ * `bucket()`, `rulesFor()`) run against the database as usual.
+ *
+ * @phpstan-type Call array{
+ *     media: Media|null,
+ *     result: Media|null,
+ *     owner: string|null,
+ *     bucket: string|null,
+ *     disk: string|null,
+ *     token: string|null,
+ *     only: list<string>,
+ *     force: bool,
+ * }
+ */
+final class MediaLibraryFake extends MediaLibraryManager
+{
+    /** @var array<string, list<Call>> */
+    private array $calls = [];
+
+    public function store(PendingFileAddState $state): Media
+    {
+        $bucket = $state->owner instanceof HasMedia ? $state->owner->resolveMediaBucket($state->bucket) : null;
+
+        if ($bucket !== null && ! $bucket->accepts($state->file->mimeType)) {
+            throw FileUnacceptableForBucket::mimeType($state->file->mimeType ?? 'unknown', $state->bucket);
+        }
+
+        $media = MediaModel::new();
+        $media->uuid = (string) Str::uuid();
+        $media->bucket_name = $state->bucket;
+        $media->name = $state->name ?? $state->file->name;
+        $media->file_name = $this->container->make(FileNamer::class)->originalFileName($state->fileName ?? $state->file->fileName);
+        $media->mime_type = $state->file->mimeType;
+        $media->extension = $state->file->extension;
+        $media->size = $state->file->size;
+        $media->disk = $state->diskOverride ?? $bucket?->getDisk() ?? $this->configString('media.disk', 'public');
+        $media->visibility = $state->visibility ?? $bucket?->getVisibility() ?? $this->configString('media.default_visibility', 'public');
+        $media->custom_properties = $state->customProperties;
+        $media->generated_variants = [];
+
+        if ($state->draft) {
+            $media->draft_token = (string) Str::uuid();
+            $media->draft_expires_at = CarbonImmutable::now()->addMinutes($this->draftTtl());
+        } elseif ($state->owner instanceof Model) {
+            $media->model_type = $state->owner->getMorphClass();
+            $media->model_id = $state->owner->getKey();
+        }
+
+        if (! $state->preserveOriginal && $state->file->isTemporary && is_file($state->file->path)) {
+            @unlink($state->file->path);
+        }
+
+        $this->record('added', result: $media, owner: $this->ownerKeyOf($media), bucket: $state->bucket, disk: $media->disk);
+
+        return $media;
+    }
+
+    public function attach(Media $media, ?Model $to = null, string $bucket = 'default'): Media
+    {
+        $attached = $this->replicaOf($media, $to, $bucket, $media->disk);
+
+        $this->record('attached', media: $media, result: $attached, owner: $this->ownerKey($to), bucket: $bucket);
+
+        return $attached;
+    }
+
+    public function bindDraft(string $token, Model $to, string $bucket = 'default'): Media
+    {
+        $draft = $this->recordedDraft($token)
+            ?? MediaModel::query()->drafts()->where('draft_token', $token)->first()
+            ?? throw DraftMediaNotFound::forToken($token);
+
+        if ($draft->draft_expires_at instanceof CarbonInterface && $draft->draft_expires_at->isPast()) {
+            throw DraftMediaExpired::forToken($token);
+        }
+
+        $this->rehome($draft, $to, $bucket);
+        $draft->draft_token = null;
+        $draft->draft_expires_at = null;
+
+        $this->record('bound', result: $draft, owner: $this->ownerKey($to), bucket: $bucket, token: $token);
+
+        return $draft;
+    }
+
+    public function move(Media $media, ?Model $to = null, string $bucket = 'default', ?string $disk = null): Media
+    {
+        $this->record('moved', media: $media, owner: $this->ownerKey($to), bucket: $bucket, disk: $disk ?? $media->disk);
+
+        $this->rehome($media, $to, $bucket);
+        $media->disk = $disk ?? $media->disk;
+
+        return $media;
+    }
+
+    public function moveToDisk(Media $media, string $disk): Media
+    {
+        $this->record('moved', media: $media, owner: $this->ownerKeyOf($media), bucket: $media->bucket_name, disk: $disk);
+
+        $media->disk = $disk;
+
+        return $media;
+    }
+
+    public function moveVariantsToDisk(Media $media, string $disk): Media
+    {
+        $this->record('variantsMoved', media: $media, disk: $disk);
+
+        $media->variants_disk = $disk === $media->disk ? null : $disk;
+
+        return $media;
+    }
+
+    public function copy(Media $media, ?Model $to = null, string $bucket = 'default', ?string $disk = null): Media
+    {
+        $copy = $this->replicaOf($media, $to, $bucket, $disk ?? $media->disk);
+
+        $this->record('copied', media: $media, result: $copy, owner: $this->ownerKey($to), bucket: $bucket, disk: $copy->disk);
+
+        return $copy;
+    }
+
+    public function replace(Media $media, string|UploadedFile $file): Media
+    {
+        $this->record('replaced', media: $media);
+
+        return $media;
+    }
+
+    public function delete(Media $media): void
+    {
+        $this->record('deleted', media: $media);
+    }
+
+    /**
+     * Records the request and renders nothing, so it always returns an empty list.
+     *
+     * @param  list<string>  $only
+     * @return list<string>
+     */
+    public function regenerate(Media $media, array $only = [], bool $force = false): array
+    {
+        $this->record('regenerated', media: $media, only: $only, force: $force);
+
+        return [];
+    }
+
+    /** Records the request and deletes nothing, so it always returns 0. */
+    public function pruneDrafts(): int
+    {
+        $this->record('pruned');
+
+        return 0;
+    }
+
+    public function assertAdded(?string $bucket = null, ?Model $to = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('added', bucket: $bucket, to: $to),
+            'Expected media to be added'.$this->describe($bucket, $to).', but none was.',
+        );
+    }
+
+    public function assertNothingAdded(): void
+    {
+        $this->assertNone('added', 'Expected no media to be added');
+    }
+
+    public function assertAttached(?Media $media = null, ?Model $to = null, ?string $bucket = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('attached', media: $media, bucket: $bucket, to: $to),
+            'Expected media to be attached'.$this->describe($bucket, $to).', but none was.',
+        );
+    }
+
+    public function assertNothingAttached(): void
+    {
+        $this->assertNone('attached', 'Expected no media to be attached');
+    }
+
+    public function assertDraftBound(?string $token = null, ?Model $to = null, ?string $bucket = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('bound', bucket: $bucket, to: $to, token: $token),
+            'Expected a draft to be bound'.$this->describe($bucket, $to).', but none was.',
+        );
+    }
+
+    public function assertNothingBound(): void
+    {
+        $this->assertNone('bound', 'Expected no draft to be bound');
+    }
+
+    /** Matches `move()` and `moveToDisk()` calls. */
+    public function assertMoved(?Media $media = null, ?Model $to = null, ?string $bucket = null, ?string $disk = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('moved', media: $media, bucket: $bucket, to: $to, disk: $disk),
+            'Expected media to be moved'.$this->describe($bucket, $to, $disk).', but none was.',
+        );
+    }
+
+    public function assertNothingMoved(): void
+    {
+        $this->assertNone('moved', 'Expected no media to be moved');
+    }
+
+    public function assertVariantsMoved(?Media $media = null, ?string $disk = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('variantsMoved', media: $media, disk: $disk),
+            'Expected media variants to be moved'.$this->describe(null, null, $disk).', but none were.',
+        );
+    }
+
+    public function assertNoVariantsMoved(): void
+    {
+        $this->assertNone('variantsMoved', 'Expected no media variants to be moved');
+    }
+
+    public function assertCopied(?Media $media = null, ?Model $to = null, ?string $bucket = null, ?string $disk = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('copied', media: $media, bucket: $bucket, to: $to, disk: $disk),
+            'Expected media to be copied'.$this->describe($bucket, $to, $disk).', but none was.',
+        );
+    }
+
+    public function assertNothingCopied(): void
+    {
+        $this->assertNone('copied', 'Expected no media to be copied');
+    }
+
+    public function assertReplaced(?Media $media = null): void
+    {
+        Assert::assertNotEmpty($this->matching('replaced', media: $media), 'Expected media to be replaced, but none was.');
+    }
+
+    public function assertNothingReplaced(): void
+    {
+        $this->assertNone('replaced', 'Expected no media to be replaced');
+    }
+
+    public function assertDeleted(?Media $media = null): void
+    {
+        Assert::assertNotEmpty($this->matching('deleted', media: $media), 'Expected media to be deleted, but none was.');
+    }
+
+    public function assertNothingDeleted(): void
+    {
+        $this->assertNone('deleted', 'Expected no media to be deleted');
+    }
+
+    /**
+     * @param  list<string>|null  $only  the exact `$only` list requested, when given
+     */
+    public function assertRegenerated(?Media $media = null, ?array $only = null, ?bool $force = null): void
+    {
+        $matches = array_filter(
+            $this->matching('regenerated', media: $media),
+            static fn (array $call): bool => ($only === null || $call['only'] === $only)
+                && ($force === null || $call['force'] === $force),
+        );
+
+        Assert::assertNotEmpty($matches, 'Expected media variants to be regenerated, but none were.');
+    }
+
+    public function assertNothingRegenerated(): void
+    {
+        $this->assertNone('regenerated', 'Expected no media variants to be regenerated');
+    }
+
+    public function assertDraftsPruned(): void
+    {
+        Assert::assertNotEmpty($this->calls['pruned'] ?? [], 'Expected expired drafts to be pruned, but they were not.');
+    }
+
+    public function assertDraftsNotPruned(): void
+    {
+        $this->assertNone('pruned', 'Expected expired drafts not to be pruned');
+    }
+
+    /**
+     * @param  list<string>  $only
+     */
+    private function record(
+        string $verb,
+        ?Media $media = null,
+        ?Media $result = null,
+        ?string $owner = null,
+        ?string $bucket = null,
+        ?string $disk = null,
+        ?string $token = null,
+        array $only = [],
+        bool $force = false,
+    ): void {
+        $this->calls[$verb][] = [
+            'media' => $media,
+            'result' => $result,
+            'owner' => $owner,
+            'bucket' => $bucket,
+            'disk' => $disk,
+            'token' => $token,
+            'only' => $only,
+            'force' => $force,
+        ];
+    }
+
+    /**
+     * @return list<Call>
+     */
+    private function matching(
+        string $verb,
+        ?Media $media = null,
+        ?string $bucket = null,
+        ?Model $to = null,
+        ?string $disk = null,
+        ?string $token = null,
+    ): array {
+        $owner = $this->ownerKey($to);
+
+        return array_values(array_filter(
+            $this->calls[$verb] ?? [],
+            static fn (array $call): bool => ($media === null || $call['media']?->uuid === $media->uuid)
+                && ($bucket === null || $call['bucket'] === $bucket)
+                && ($owner === null || $call['owner'] === $owner)
+                && ($disk === null || $call['disk'] === $disk)
+                && ($token === null || $call['token'] === $token),
+        ));
+    }
+
+    private function assertNone(string $verb, string $message): void
+    {
+        $count = count($this->calls[$verb] ?? []);
+
+        Assert::assertSame(0, $count, "{$message}, but {$count} call(s) were recorded.");
+    }
+
+    private function describe(?string $bucket, ?Model $to, ?string $disk = null): string
+    {
+        $parts = array_filter([
+            $bucket !== null ? "bucket [{$bucket}]" : null,
+            $to !== null ? 'owner ['.$this->ownerKey($to).']' : null,
+            $disk !== null ? "disk [{$disk}]" : null,
+        ]);
+
+        return $parts === [] ? '' : ' ('.implode(', ', $parts).')';
+    }
+
+    /** The unbound draft this fake stored under `$token`, if any. */
+    private function recordedDraft(string $token): ?Media
+    {
+        foreach ($this->calls['added'] ?? [] as $call) {
+            if ($call['result']?->draft_token === $token) {
+                return $call['result'];
+            }
+        }
+
+        return null;
+    }
+
+    private function replicaOf(Media $media, ?Model $to, string $bucket, string $disk): Media
+    {
+        $replica = $media->replicate(['uuid', 'generated_variants', 'draft_token', 'draft_expires_at', 'order_column']);
+        $replica->uuid = (string) Str::uuid();
+        $replica->generated_variants = [];
+        $replica->disk = $disk;
+
+        $this->rehome($replica, $to, $bucket);
+
+        return $replica;
+    }
+
+    private function rehome(Media $media, ?Model $to, string $bucket): void
+    {
+        $media->bucket_name = $bucket;
+        $media->model_type = $to?->getMorphClass();
+        $media->model_id = $to?->getKey();
+    }
+
+    private function ownerKey(?Model $model): ?string
+    {
+        return $model === null ? null : $model->getMorphClass().'#'.$model->getKey();
+    }
+
+    private function ownerKeyOf(Media $media): ?string
+    {
+        return $media->model_type === null ? null : $media->model_type.'#'.$media->model_id;
+    }
+
+    private function configString(string $key, string $default): string
+    {
+        $value = config($key);
+
+        return is_string($value) ? $value : $default;
+    }
+
+    private function draftTtl(): int
+    {
+        $ttl = config('media.drafts.ttl');
+
+        return is_numeric($ttl) ? (int) $ttl : 1440;
+    }
+}

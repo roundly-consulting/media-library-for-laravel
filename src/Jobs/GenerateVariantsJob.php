@@ -9,14 +9,15 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use RoundlyConsulting\MediaLibrary\Actions\GenerateVariantsAction;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
  * Queued generation of a media's variants. Carries the media id and the variant names (never the
  * model) so the payload stays small and serializable, then re-resolves the variant definitions
- * from the owning model/bucket when it runs.
+ * from the owning model/bucket when it runs — through `MediaLibrary::regenerate()`, so a faked
+ * manager records it.
  */
 final class GenerateVariantsJob implements ShouldQueue
 {
@@ -33,8 +34,11 @@ final class GenerateVariantsJob implements ShouldQueue
         public readonly array $variantNames,
     ) {}
 
-    public function handle(GenerateVariantsAction $action): void
+    public function handle(MediaLibraryManager $manager): void
     {
+        if ($this->variantNames === []) {
+            return;
+        }
 
         $media = MediaModel::query()->find($this->mediaId);
 
@@ -42,13 +46,7 @@ final class GenerateVariantsJob implements ShouldQueue
             return;
         }
 
-        $variants = $media->resolveVariants();
-
-        $requested = array_values(array_filter(
-            $variants,
-            fn (object $variant): bool => in_array($variant->name, $this->variantNames, true),
-        ));
-
-        $action->execute($media, $requested);
+        // Exactly the requested variants, re-rendered even if a file already exists.
+        $manager->regenerate($media, $this->variantNames, force: true);
     }
 }

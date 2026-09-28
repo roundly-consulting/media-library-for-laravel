@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Events\DraftMediaHasBeenBound;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
-use RoundlyConsulting\MediaLibrary\Facades\Media;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Models\Media as MediaModel;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
@@ -24,7 +24,7 @@ function draftUser(string $name = 'Jane'): TestUser
 it('stores a draft via the facade with a token, null owner, and TTL expiry', function (): void {
     CarbonImmutable::setTestNow('2026-06-18 12:00:00');
 
-    $draft = Media::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
+    $draft = MediaLibrary::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
 
     expect($draft->draft_token)->not->toBeNull()
         ->and($draft->model_type)->toBeNull()
@@ -40,7 +40,7 @@ it('honours a custom draft TTL from config', function (): void {
     CarbonImmutable::setTestNow('2026-06-18 12:00:00');
     config()->set('media.drafts.ttl', 60);
 
-    $draft = Media::draft(__DIR__.'/../files/pixel.png')->toBucket('default');
+    $draft = MediaLibrary::draft(__DIR__.'/../files/pixel.png')->toBucket('default');
 
     expect($draft->draft_expires_at?->toDateTimeString())->toBe('2026-06-18 13:00:00');
 });
@@ -71,7 +71,7 @@ it('binds a draft to a model, setting owner and clearing the token', function ()
 
     $user = draftUser();
 
-    $draft = Media::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
+    $draft = MediaLibrary::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
     $token = (string) $draft->draft_token;
 
     $bound = $user->attachDraftMedia($token, 'avatar');
@@ -96,7 +96,7 @@ it('throws when binding an unknown draft token', function (): void {
 it('throws when binding an already-bound media token', function (): void {
     $user = draftUser();
 
-    $draft = Media::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
+    $draft = MediaLibrary::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
     $token = (string) $draft->draft_token;
 
     $user->attachDraftMedia($token, 'avatar');
@@ -109,7 +109,7 @@ it('throws when binding an expired draft', function (): void {
     CarbonImmutable::setTestNow('2026-06-18 12:00:00');
 
     $user = draftUser();
-    $draft = Media::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
+    $draft = MediaLibrary::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
     $token = (string) $draft->draft_token;
 
     CarbonImmutable::setTestNow('2026-06-20 12:00:00');
@@ -121,12 +121,12 @@ it('prunes only expired, never-bound drafts', function (): void {
     // Old draft: TTL 24h, expires on the 19th at 12:00.
     CarbonImmutable::setTestNow('2026-06-18 12:00:00');
     $user = draftUser();
-    $expiredDraft = Media::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
+    $expiredDraft = MediaLibrary::draft(__DIR__.'/../files/pixel.png')->toBucket('avatar');
     $expiredPath = $expiredDraft->getPath();
 
     // Fresh draft created later: still unexpired at prune time.
     CarbonImmutable::setTestNow('2026-06-20 11:30:00');
-    $freshDraft = Media::draft(__DIR__.'/../files/square.webp')->toBucket('avatar');
+    $freshDraft = MediaLibrary::draft(__DIR__.'/../files/square.webp')->toBucket('avatar');
 
     // A bound media (token cleared) and an ordinary media must never be touched.
     $bound = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('gallery');

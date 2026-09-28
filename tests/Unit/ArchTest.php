@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaLibraryException;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
@@ -33,6 +34,9 @@ ArchPresets::finalByDefault('RoundlyConsulting\MediaLibrary', [
     Media::class,
     // The base every media error extends, so a host can catch them uniformly.
     MediaLibraryException::class,
+    // The facade root: `MediaLibraryFake` must subtype it, or an injected manager TypeErrors
+    // under `MediaLibrary::fake()`.
+    MediaLibraryManager::class,
 ]);
 
 /**
@@ -116,6 +120,13 @@ ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../../composer.json');
 ArchPresets::noDebuggingLeftovers();
 
 /**
+ * The `Media` model methods (`move()`, `copy()`, `replace()`, `deleteWithFiles()`, …) and the
+ * `InteractsWithMedia` trait reach behaviour through `MediaLibraryManager`, never an action, so
+ * `MediaLibrary::fake()` sees every call made through a model.
+ */
+ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\MediaLibrary');
+
+/**
  * Kept — bespoke, no preset equivalent: the vendor roots src may touch. Narrower than
  * `runtimeRequireIsWhitelisted` (which reads composer.json), this pins the actual imports.
  */
@@ -149,7 +160,9 @@ arch('src uses only allowed namespaces')
         'event',
         'dispatch',
         'request',
-    ]);
+    ])
+    // `Testing\MediaLibraryFake` ships PHPUnit asserts, loaded only when a test calls `MediaLibrary::fake()`.
+    ->ignoring('PHPUnit\Framework\Assert');
 
 /** Kept — bespoke: the action shape, which no preset expresses. */
 arch('actions expose a single execute method')

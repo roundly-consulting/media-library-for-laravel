@@ -6,7 +6,7 @@ namespace RoundlyConsulting\MediaLibrary\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
-use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
@@ -27,15 +27,16 @@ final class ClearCommand extends Command
 
     protected $description = 'Delete every media in a model or global bucket';
 
-    public function handle(DeleteMediaAction $action): int
+    public function handle(MediaLibraryManager $media): int
     {
         $bucketArg = $this->input->getArgument('bucket');
         $bucket = is_string($bucketArg) ? $bucketArg : 'default';
 
         $count = 0;
 
-        $this->query($bucket)->each(function (Media $media) use ($action, &$count): void {
-            $action->execute($media);
+        // Keyset iteration: deleting while paging by offset would skip every other chunk.
+        $this->query($bucket)->lazyById()->each(function (Media $item) use ($media, &$count): void {
+            $media->delete($item);
             $count++;
         });
 

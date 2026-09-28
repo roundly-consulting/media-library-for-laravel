@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\MediaLibrary\Facades\Media;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\ConfigurableBucketUser;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
@@ -11,7 +11,7 @@ beforeEach(function (): void {
 });
 
 it('derives mimes, size, and dimension rules from the bucket', function (): void {
-    $rules = Media::rulesFor(TestUser::class, 'documents');
+    $rules = MediaLibrary::rulesFor(TestUser::class, 'documents');
 
     expect($rules)->toBe([
         'file',
@@ -22,7 +22,7 @@ it('derives mimes, size, and dimension rules from the bucket', function (): void
 });
 
 it('applies the configured default size to a mime-only bucket', function (): void {
-    $rules = Media::rulesFor(TestUser::class, 'avatar');
+    $rules = MediaLibrary::rulesFor(TestUser::class, 'avatar');
 
     // 256 MiB (the shipped media.max_file_size) => 262144 KB.
     expect($rules)->toBe([
@@ -33,13 +33,13 @@ it('applies the configured default size to a mime-only bucket', function (): voi
 });
 
 it('applies the configured default size to an unconstrained bucket', function (): void {
-    $rules = Media::rulesFor(TestUser::class, 'gallery');
+    $rules = MediaLibrary::rulesFor(TestUser::class, 'gallery');
 
     expect($rules)->toBe(['file', 'max:262144']);
 });
 
 it('applies the configured default size to an unknown bucket', function (): void {
-    $rules = Media::rulesFor(TestUser::class, 'no-such-bucket');
+    $rules = MediaLibrary::rulesFor(TestUser::class, 'no-such-bucket');
 
     expect($rules)->toBe(['file', 'max:262144']);
 });
@@ -47,36 +47,36 @@ it('applies the configured default size to an unknown bucket', function (): void
 it('honours a configured max file size', function (): void {
     config()->set('media.max_file_size', 2 * 1024 * 1024);
 
-    expect(Media::rulesFor(TestUser::class, 'gallery'))->toBe(['file', 'max:2048']);
+    expect(MediaLibrary::rulesFor(TestUser::class, 'gallery'))->toBe(['file', 'max:2048']);
 });
 
 it('emits no size rule when the package level limit is disabled', function (): void {
     config()->set('media.max_file_size', null);
 
-    expect(Media::rulesFor(TestUser::class, 'gallery'))->toBe(['file']);
+    expect(MediaLibrary::rulesFor(TestUser::class, 'gallery'))->toBe(['file']);
 });
 
 it('lets a bucket override the configured default size', function (): void {
     config()->set('media.max_file_size', 2 * 1024 * 1024);
 
     // TestUser's `documents` bucket declares maxFileSize(5 MiB), which must win over the default.
-    expect(Media::rulesFor(TestUser::class, 'documents'))->toContain('max:5120')
-        ->and(Media::rulesFor(TestUser::class, 'documents'))->not->toContain('max:2048');
+    expect(MediaLibrary::rulesFor(TestUser::class, 'documents'))->toContain('max:5120')
+        ->and(MediaLibrary::rulesFor(TestUser::class, 'documents'))->not->toContain('max:2048');
 });
 
 it('rounds a non-kilobyte-aligned max size up to whole kilobytes', function (): void {
-    $rules = Media::rulesFor(ConfigurableBucketUser::class, 'uploads');
+    $rules = MediaLibrary::rulesFor(ConfigurableBucketUser::class, 'uploads');
 
     // 1 MiB => exactly 1024 KB.
     expect($rules)->toContain('max:1024');
 });
 
 it('changes the rules when the bucket definition changes', function (): void {
-    $relaxed = Media::rulesFor(ConfigurableBucketUser::class, 'uploads');
+    $relaxed = MediaLibrary::rulesFor(ConfigurableBucketUser::class, 'uploads');
 
     ConfigurableBucketUser::$strict = true;
 
-    $strict = Media::rulesFor(ConfigurableBucketUser::class, 'uploads');
+    $strict = MediaLibrary::rulesFor(ConfigurableBucketUser::class, 'uploads');
 
     expect($relaxed)->not->toBe($strict)
         ->and($strict)->toContain('max:2048')

@@ -4,24 +4,25 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Buckets;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidBase64Data;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 
 /**
  * Normalizes every supported media source (upload, path, URL, disk file, raw string,
- * base64, stream) into an {@see AddedFile} materialized on the local filesystem, and builds
- * the {@see PendingFileAdd} the caller chains on.
+ * base64, stream) into an {@see AddedFile} materialized on the local filesystem. The manager
+ * wraps the result in the {@see PendingFileAdd} the caller chains on.
+ *
+ * @internal building block of {@see MediaLibraryManager}
  */
 final class FileAdderFactory
 {
-    public function fromFile(HasMedia|Model|null $owner, string|UploadedFile $file): PendingFileAdd
+    public function fromFile(string|UploadedFile $file): AddedFile
     {
         if ($file instanceof UploadedFile) {
             $path = $file->getRealPath();
@@ -35,17 +36,16 @@ final class FileAdderFactory
             $contents = file_get_contents($path);
 
             return $this->fromTempContents(
-                $owner,
                 $contents === false ? '' : $contents,
                 $file->getClientOriginalName(),
                 $file->getMimeType(),
             );
         }
 
-        return $this->fromPath($owner, $file);
+        return $this->fromPath($file);
     }
 
-    public function fromPath(HasMedia|Model|null $owner, string $path): PendingFileAdd
+    public function fromPath(string $path): AddedFile
     {
         if (! is_file($path) || ! is_readable($path)) {
             throw FileDoesNotExist::forPath($path);
@@ -54,17 +54,17 @@ final class FileAdderFactory
         $fileName = basename($path);
         $size = filesize($path);
 
-        return $this->build($owner, new AddedFile(
+        return new AddedFile(
             path: $path,
             name: $this->displayName($fileName),
             fileName: $this->sanitizeFileName($fileName),
             mimeType: $this->detectMimeType($path),
             extension: pathinfo($fileName, PATHINFO_EXTENSION) ?: null,
             size: $size === false ? 0 : $size,
-        ));
+        );
     }
 
-    public function fromUrl(HasMedia|Model|null $owner, string $url): PendingFileAdd
+    public function fromUrl(string $url): AddedFile
     {
         $headers = config('media.remote.headers');
         $headers = is_array($headers) ? $headers : [];
@@ -80,14 +80,13 @@ final class FileAdderFactory
         $fileName = basename((string) parse_url($url, PHP_URL_PATH)) ?: Str::random(40);
 
         return $this->fromTempContents(
-            $owner,
             $response->body(),
             $fileName,
             $response->header('Content-Type') ?: null,
         );
     }
 
-    public function fromDisk(HasMedia|Model|null $owner, string $path, ?string $disk = null): PendingFileAdd
+    public function fromDisk(string $path, ?string $disk = null): AddedFile
     {
         $disk ??= $this->configDisk();
         $storage = Storage::disk($disk);
@@ -99,19 +98,18 @@ final class FileAdderFactory
         $contents = $storage->get($path);
 
         return $this->fromTempContents(
-            $owner,
             $contents ?? '',
             basename($path),
             $storage->mimeType($path) ?: null,
         );
     }
 
-    public function fromString(HasMedia|Model|null $owner, string $contents): PendingFileAdd
+    public function fromString(string $contents): AddedFile
     {
-        return $this->fromTempContents($owner, $contents, Str::random(40), null);
+        return $this->fromTempContents($contents, Str::random(40), null);
     }
 
-    public function fromBase64(HasMedia|Model|null $owner, string $base64): PendingFileAdd
+    public function fromBase64(string $base64): AddedFile
     {
         if (str_contains($base64, ',')) {
             $base64 = (string) Str::after($base64, ',');
@@ -123,13 +121,13 @@ final class FileAdderFactory
             throw InvalidBase64Data::make();
         }
 
-        return $this->fromTempContents($owner, $decoded, Str::random(40), null);
+        return $this->fromTempContents($decoded, Str::random(40), null);
     }
 
     /**
      * @param  resource  $stream
      */
-    public function fromStream(HasMedia|Model|null $owner, $stream): PendingFileAdd
+    public function fromStream($stream): AddedFile
     {
         $contents = stream_get_contents($stream);
 
@@ -137,10 +135,10 @@ final class FileAdderFactory
             throw FileDoesNotExist::forPath('stream');
         }
 
-        return $this->fromTempContents($owner, $contents, Str::random(40), null);
+        return $this->fromTempContents($contents, Str::random(40), null);
     }
 
-    private function fromTempContents(HasMedia|Model|null $owner, string $contents, string $fileName, ?string $mimeType): PendingFileAdd
+    private function fromTempContents(string $contents, string $fileName, ?string $mimeType): AddedFile
     {
         $tempPath = tempnam(sys_get_temp_dir(), 'media_');
 
@@ -157,7 +155,7 @@ final class FileAdderFactory
             $fileName .= '.'.$extension;
         }
 
-        return $this->build($owner, new AddedFile(
+        return new AddedFile(
             path: $tempPath,
             name: $this->displayName($fileName),
             fileName: $this->sanitizeFileName($fileName),
@@ -165,12 +163,7 @@ final class FileAdderFactory
             extension: $extension,
             size: strlen($contents),
             isTemporary: true,
-        ));
-    }
-
-    private function build(HasMedia|Model|null $owner, AddedFile $file): PendingFileAdd
-    {
-        return new PendingFileAdd($owner, $file);
+        );
     }
 
     private function detectMimeType(string $path): ?string

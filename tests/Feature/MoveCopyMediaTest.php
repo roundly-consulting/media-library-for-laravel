@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenMoved;
 use RoundlyConsulting\MediaLibrary\Exceptions\DiskDoesNotExist;
-use RoundlyConsulting\MediaLibrary\Facades\Media as MediaFacade;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
 function moveUser(string $name = 'Jane'): TestUser
@@ -83,7 +83,7 @@ it('re-homes media from one model to another and to global', function (): void {
 });
 
 it('moves global media onto a model', function (): void {
-    $logo = MediaFacade::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
+    $logo = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
     $user = moveUser();
 
     $logo->move($user, 'gallery');
@@ -131,7 +131,7 @@ it('copies variants alongside the original', function (): void {
 });
 
 it('copies global media onto a model', function (): void {
-    $logo = MediaFacade::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
+    $logo = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
     $user = moveUser();
 
     $copy = $logo->copy($user, 'gallery');

@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Actions\GenerateVariantsAction;
-use RoundlyConsulting\MediaLibrary\Facades\Media as MediaFacade;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
@@ -31,7 +31,7 @@ it('copies media onto a null owner as global media', function (): void {
 });
 
 it('orders copied global media after existing global media in the bucket', function (): void {
-    $first = MediaFacade::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
+    $first = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
     $second = $first->copy(null, 'brand');
 
     expect($second->order_column)->toBeGreaterThan((int) $first->order_column);

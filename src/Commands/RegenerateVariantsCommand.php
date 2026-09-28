@@ -6,13 +6,12 @@ namespace RoundlyConsulting\MediaLibrary\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
-use RoundlyConsulting\MediaLibrary\Actions\GenerateVariantsAction;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
-use RoundlyConsulting\MediaLibrary\Variants\Variant;
 
 /**
- * Re-runs variant generation for stored media.
+ * Re-runs variant generation for stored media — `MediaLibrary::regenerate()` per matching media.
  *
  * Examples:
  *   php artisan media:regenerate
@@ -30,51 +29,22 @@ final class RegenerateVariantsCommand extends Command
 
     protected $description = 'Regenerate image variants for stored media';
 
-    public function handle(GenerateVariantsAction $action): int
+    public function handle(MediaLibraryManager $media): int
     {
         $only = $this->namesOption('only');
+        $force = $this->option('force') === true;
 
         $count = 0;
 
-        $this->query()->each(function (Media $media) use ($action, $only, &$count): void {
-            $variants = $this->variantsFor($media, $only);
-
-            if ($variants === []) {
-                return;
+        $this->query()->each(function (Media $item) use ($media, $only, $force, &$count): void {
+            if ($media->regenerate($item, $only, $force) !== []) {
+                $count++;
             }
-
-            $action->execute($media, $variants);
-            $count++;
         });
 
         $this->info("Regenerated variants for {$count} media.");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * @param  list<string>  $only
-     * @return list<Variant>
-     */
-    private function variantsFor(Media $media, array $only): array
-    {
-        $force = $this->option('force') === true;
-
-        $variants = [];
-
-        foreach ($media->resolveVariants() as $variant) {
-            if ($only !== [] && ! in_array($variant->name, $only, true)) {
-                continue;
-            }
-
-            if (! $force && $media->hasGeneratedVariant($variant->name)) {
-                continue;
-            }
-
-            $variants[] = $variant;
-        }
-
-        return $variants;
     }
 
     /** @return Builder<Media> */

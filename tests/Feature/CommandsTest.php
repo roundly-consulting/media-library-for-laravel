@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
-use RoundlyConsulting\MediaLibrary\Facades\Media as MediaFacade;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
@@ -154,7 +154,7 @@ it('clears a model bucket', function (): void {
 });
 
 it('clears a global bucket', function (): void {
-    $logo = MediaFacade::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
+    $logo = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('brand');
     $user = commandUser();
     $owned = $user->addMedia(__DIR__.'/../files/pixel.png')->toMediaBucket('gallery');
 

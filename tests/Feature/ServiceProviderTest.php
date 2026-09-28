@@ -9,8 +9,8 @@ use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\MediaLibraryServiceProvider;
-use RoundlyConsulting\MediaLibrary\MediaManager;
 use RoundlyConsulting\MediaLibrary\Support\CdnUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultFileNamer;
 use RoundlyConsulting\MediaLibrary\Support\DefaultPathGenerator;
@@ -56,8 +56,8 @@ it('binds the seam contracts from config', function (): void {
 });
 
 it('binds the media manager as a singleton', function (): void {
-    expect(app(MediaManager::class))->toBe(app('media'))
-        ->and(app(MediaManager::class))->toBeInstanceOf(MediaManager::class);
+    expect(app(MediaLibraryManager::class))->toBe(app('media'))
+        ->and(app(MediaLibraryManager::class))->toBeInstanceOf(MediaLibraryManager::class);
 });
 
 it('registers the streaming route when it is enabled', function (): void {

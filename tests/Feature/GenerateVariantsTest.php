@@ -6,10 +6,10 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
-use RoundlyConsulting\MediaLibrary\Actions\GenerateVariantsAction;
 use RoundlyConsulting\MediaLibrary\Events\VariantHasBeenGenerated;
 use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenGenerated;
 use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
+use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
 function userWithVariants(): TestUser
@@ -140,7 +140,7 @@ it('processes queued variants when the job runs', function (): void {
 
     // Run the queued job manually.
     $job = new GenerateVariantsJob($media->id, ['display']);
-    $job->handle(app(GenerateVariantsAction::class));
+    $job->handle(app(MediaLibraryManager::class));
 
     $media->refresh();
 
@@ -160,7 +160,7 @@ it('ignores a job for missing media', function (): void {
 
     $job = new GenerateVariantsJob(999999, ['display']);
 
-    $job->handle(app(GenerateVariantsAction::class));
+    $job->handle(app(MediaLibraryManager::class));
 
     Event::assertNotDispatched(VariantsHaveBeenGenerated::class);
     Event::assertNotDispatched(VariantHasBeenGenerated::class);
