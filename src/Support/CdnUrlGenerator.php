@@ -7,6 +7,7 @@ namespace RoundlyConsulting\MediaLibrary\Support;
 use DateTimeInterface;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Decorates the {@see DefaultUrlGenerator}, rewriting PUBLIC URLs onto a CDN host (§9.4).
@@ -75,7 +76,7 @@ final class CdnUrlGenerator implements UrlGenerator
 
     private function cacheBust(Media $media, string $url): string
     {
-        if (config('media.cdn.cache_bust') !== true) {
+        if (! Config::boolean('media.cdn.cache_bust', true)) {
             return $url;
         }
 

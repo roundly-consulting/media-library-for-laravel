@@ -24,6 +24,7 @@ use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use Throwable;
 
 /**
@@ -220,7 +221,7 @@ final class AddMediaAction
 
     private function dedupCanonical(string $disk, string $visibility, ?string $checksum): ?Media
     {
-        if ($checksum === null || config('media.deduplicate') !== true) {
+        if ($checksum === null || ! Config::boolean('media.deduplicate', true)) {
             return null;
         }
 

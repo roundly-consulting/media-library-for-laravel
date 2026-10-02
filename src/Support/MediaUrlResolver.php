@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\URL;
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaCannotBeStreamed;
 use RoundlyConsulting\MediaLibrary\Exceptions\TemporaryUrlNotSupported;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use RuntimeException;
 
 /**
@@ -60,7 +61,7 @@ final class MediaUrlResolver
 
     private function signedRouteUrl(Media $media, DateTimeInterface $expiry, string $variant): string
     {
-        if (config('media.stream.enabled') !== true) {
+        if (! Config::boolean('media.stream.enabled', true)) {
             throw TemporaryUrlNotSupported::forDisk($media->diskFor($variant));
         }
 

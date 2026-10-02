@@ -8,6 +8,7 @@ use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Renders a media's variants now or on the queue, per variant: its own `queued()`/`nonQueued()`,
@@ -69,7 +70,7 @@ final class DispatchVariantsAction
 
     private function shouldQueue(Variant $variant): bool
     {
-        return $variant->isQueued() ?? config('media.queue_variants_by_default') === true;
+        return $variant->isQueued() ?? Config::boolean('media.queue_variants_by_default');
     }
 
     /**

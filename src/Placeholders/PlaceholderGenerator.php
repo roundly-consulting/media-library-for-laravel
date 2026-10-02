@@ -6,6 +6,7 @@ namespace RoundlyConsulting\MediaLibrary\Placeholders;
 
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Computes the LQIP placeholder map ({thumbhash, blurhash}) for an image from a single
@@ -26,8 +27,8 @@ final class PlaceholderGenerator
      */
     public function forLocalImage(string $path, ImageDriver $driver): array
     {
-        $wantsThumbHash = config('media.placeholders.thumbhash') !== false;
-        $wantsBlurHash = config('media.placeholders.blurhash') !== false;
+        $wantsThumbHash = Config::boolean('media.placeholders.thumbhash', true);
+        $wantsBlurHash = Config::boolean('media.placeholders.blurhash', true);
 
         if (! $wantsThumbHash && ! $wantsBlurHash) {
             return [];

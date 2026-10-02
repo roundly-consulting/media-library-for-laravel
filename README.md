@@ -187,6 +187,10 @@ Every key:
 | `cdn.cache_bust` | `bool` | `true` | — | Append `?v={updated_at}` to public URLs so replaced media busts caches. |
 | `cdn.disks` | `list<string>` | `[]` | — | Limit CDN rewriting to these disks. `[]` = all public disks. |
 
+Every `bool` switch is parsed as a boolean wherever it is read: `true`/`1`/`on`/`yes` turn it on
+and `false`/`0`/`off`/`no` turn it off, so a switch you feed from `.env` in your published config
+behaves as written.
+
 ## Quick start
 
 Add the `HasMedia` contract and the `InteractsWithMedia` trait to any model, and declare its

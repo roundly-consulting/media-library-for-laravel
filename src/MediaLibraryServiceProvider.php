@@ -20,6 +20,7 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 final class MediaLibraryServiceProvider extends PackageServiceProvider
 {
@@ -77,17 +78,17 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
             'Default disk' => config('media.disk') === 'public' ? 'DEFAULT' : 'CUSTOM',
             'Variants disk' => is_string(config('media.variants_disk')) ? 'CUSTOM' : 'SAME AS ORIGINAL',
             'Image driver' => is_string($driver = config('media.image_driver')) ? $driver : 'imagick',
-            'Queue variants' => config('media.queue_variants_by_default') === true
+            'Queue variants' => Config::boolean('media.queue_variants_by_default')
                 ? 'ON (connection '.(is_string(config('media.queue_connection')) ? 'SET' : 'DEFAULT').', queue '.(is_string(config('media.queue_name')) ? 'SET' : 'DEFAULT').')'
                 : 'OFF',
-            'Deduplication' => config('media.deduplicate') === true ? 'ON ('.$this->checksumAlgorithm().')' : 'OFF',
-            'Verify checksum on read' => config('media.verify_checksum_on_read') === true ? 'ON' : 'OFF',
+            'Deduplication' => Config::boolean('media.deduplicate', true) ? 'ON ('.$this->checksumAlgorithm().')' : 'OFF',
+            'Verify checksum on read' => Config::boolean('media.verify_checksum_on_read') ? 'ON' : 'OFF',
             'Placeholders' => $this->placeholderSummary(),
             'Responsive widths' => count($this->configArray('media.responsive.widths')).' width(s)',
-            'Streaming route' => config('media.stream.enabled') === true
+            'Streaming route' => Config::boolean('media.stream.enabled', true)
                 ? 'ON (prefix '.(is_string(config('media.stream.route_prefix')) ? 'SET' : 'DEFAULT').', '.count($this->configArray('media.stream.middleware')).' middleware)'
                 : 'OFF',
-            'CDN' => config('media.cdn.enabled') === true
+            'CDN' => Config::boolean('media.cdn.enabled')
                 ? 'ON (base URL '.(is_string(config('media.cdn.base_url')) && config('media.cdn.base_url') !== '' ? 'SET' : 'MISSING').', '.$this->cdnDiskSummary().')'
                 : 'OFF',
             'Max file size' => is_numeric($max = config('media.max_file_size')) ? (int) $max.' B' : 'NO LIMIT',
@@ -106,11 +107,11 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
     {
         $enabled = [];
 
-        if (config('media.placeholders.thumbhash') !== false) {
+        if (Config::boolean('media.placeholders.thumbhash', true)) {
             $enabled[] = 'thumbhash';
         }
 
-        if (config('media.placeholders.blurhash') !== false) {
+        if (Config::boolean('media.placeholders.blurhash', true)) {
             $enabled[] = 'blurhash';
         }
 
@@ -162,7 +163,7 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
             return;
         }
 
-        if (config('media.cdn.enabled') === true) {
+        if (Config::boolean('media.cdn.enabled')) {
             $this->app->bind(
                 UrlGenerator::class,
                 static fn ($app): CdnUrlGenerator => new CdnUrlGenerator($app->make(DefaultUrlGenerator::class)),

@@ -8,6 +8,7 @@ use DateTimeInterface;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Builds media URLs from Laravel's filesystem, delegating the public/temporary strategy to the
@@ -43,7 +44,7 @@ final class DefaultUrlGenerator implements UrlGenerator
             return $variant;
         }
 
-        if (config('media.url_fallback_to_original') === true) {
+        if (Config::boolean('media.url_fallback_to_original')) {
             return '';
         }
 

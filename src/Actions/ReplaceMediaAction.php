@@ -17,6 +17,7 @@ use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use Throwable;
 
 /**
@@ -159,7 +160,7 @@ final class ReplaceMediaAction
 
     private function dedupCanonical(Media $media, ?string $checksum): ?Media
     {
-        if ($checksum === null || config('media.deduplicate') !== true) {
+        if ($checksum === null || ! Config::boolean('media.deduplicate', true)) {
             return null;
         }
 

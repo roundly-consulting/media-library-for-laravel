@@ -26,6 +26,7 @@ use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Variants\ResponsiveImageGenerator;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Mime\MimeTypes;
 
@@ -601,7 +602,7 @@ class Media extends Model
      */
     private function guardChecksumOnRead(string $variant): void
     {
-        if ($variant !== '' || config('media.verify_checksum_on_read') !== true) {
+        if ($variant !== '' || ! Config::boolean('media.verify_checksum_on_read')) {
             return;
         }
 
