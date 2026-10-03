@@ -50,6 +50,17 @@ final class AddMediaAction
 
     public function execute(PendingFileAddState $state): Media
     {
+        // A temporary source (from a string, a stream, a URL, base64) is discarded however the
+        // add ends — a refused or failed add would otherwise leave it in the temp dir for good.
+        try {
+            return $this->add($state);
+        } finally {
+            $this->discardSource($state);
+        }
+    }
+
+    private function add(PendingFileAddState $state): Media
+    {
         $bucket = $this->guard->bucketFor($state->owner, $state->bucket);
 
         // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.

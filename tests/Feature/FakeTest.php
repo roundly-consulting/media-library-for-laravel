@@ -268,12 +268,38 @@ it('asserts draft prunes made through the facade or the command', function (): v
 
 it('discards the temporary copy a faked add was normalized into', function (): void {
     $fake = MediaLibrary::fake();
+
+    // The system temp dir is shared with every parallel process, each creating and deleting its
+    // own `media_*` copies mid-test, so a before/after count raced them. Look for THIS add's copy
+    // by its bytes instead.
+    $bytes = 'bytes-'.bin2hex(random_bytes(8));
     $before = glob(sys_get_temp_dir().'/media_*') ?: [];
 
-    MediaLibrary::addFromString('bytes')->usingFileName('a.txt')->toBucket('docs');
+    MediaLibrary::addFromString($bytes)->usingFileName('a.txt')->toBucket('docs');
 
-    expect(glob(sys_get_temp_dir().'/media_*') ?: [])->toHaveCount(count($before));
+    $survivors = array_filter(
+        array_diff(glob(sys_get_temp_dir().'/media_*') ?: [], $before),
+        static fn (string $path): bool => @file_get_contents($path) === $bytes,
+    );
+
+    expect($survivors)->toBeEmpty();
     $fake->assertAdded('docs');
+});
+
+it('discards the temporary copy of a faked add the bucket rejects', function (): void {
+    MediaLibrary::fake();
+    $bytes = 'rejected-'.bin2hex(random_bytes(8));
+    $user = TestUser::query()->create(['name' => 'Mallory']);
+
+    expect(fn () => MediaLibrary::for($user)->addFromString($bytes)->toBucket('avatar'))
+        ->toThrow(FileUnacceptableForBucket::class);
+
+    $survivors = array_filter(
+        glob(sys_get_temp_dir().'/media_*') ?: [],
+        static fn (string $path): bool => @file_get_contents($path) === $bytes,
+    );
+
+    expect($survivors)->toBeEmpty();
 });
 
 it('ignores a queued variant job that names no variants', function (): void {

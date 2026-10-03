@@ -58,6 +58,18 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function store(PendingFileAddState $state): Media
     {
+        // Like the real add: the temporary source goes however the add ends, refused included.
+        try {
+            return $this->recordStore($state);
+        } finally {
+            if ($state->file->isTemporary && is_file($state->file->path)) {
+                @unlink($state->file->path);
+            }
+        }
+    }
+
+    private function recordStore(PendingFileAddState $state): Media
+    {
         $guard = $this->container->make(BucketGuard::class);
         $bucket = $guard->bucketFor($state->owner, $state->bucket);
         $dimensions = str_starts_with((string) $state->file->mimeType, 'image/')
@@ -85,10 +97,6 @@ final class MediaLibraryFake extends MediaLibraryManager
         } elseif ($state->owner instanceof Model) {
             $media->model_type = $state->owner->getMorphClass();
             $media->model_id = $state->owner->getKey();
-        }
-
-        if ($state->file->isTemporary && is_file($state->file->path)) {
-            @unlink($state->file->path);
         }
 
         $this->record('added', result: $media, owner: $this->ownerKeyOf($media), bucket: $state->bucket, disk: $media->disk);

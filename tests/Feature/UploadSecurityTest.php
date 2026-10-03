@@ -25,6 +25,30 @@ function namedTempFile(string $name, string $contents): string
     return $directory.'/'.$name;
 }
 
+/**
+ * The `media_*` temp copies still holding `$bytes`. The temp dir is shared with every parallel
+ * process, so a copy is found by its unique bytes, never by a before/after count.
+ *
+ * @return list<string>
+ */
+function tempCopiesHolding(string $bytes): array
+{
+    return array_values(array_filter(
+        glob(sys_get_temp_dir().'/media_*') ?: [],
+        static fn (string $path): bool => @file_get_contents($path) === $bytes,
+    ));
+}
+
+it('discards the temporary copy of an add the bucket rejects', function (): void {
+    $bytes = 'rejected-'.bin2hex(random_bytes(8));
+
+    // Before: the copy addFromString() wrote was only unlinked once stored, so every refused
+    // upload left a `media_*` file in the temp dir for good.
+    expect(fn () => MediaLibrary::for(securityUser())->addFromString($bytes)->toBucket('avatar'))
+        ->toThrow(FileUnacceptableForBucket::class)
+        ->and(tempCopiesHolding($bytes))->toBe([]);
+});
+
 it('never lets usingFileName() write outside the media directory', function (): void {
     $victim = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('gallery');
     $victimBytes = Storage::disk('public')->get($victim->getPath());
