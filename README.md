@@ -106,7 +106,7 @@ return [
     'temporary_url_default_lifetime' => 5,
 
     'stream' => [
-        'enabled' => filter_var(env('MEDIA_STREAM_ENABLED', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
+        'enabled' => env('MEDIA_STREAM_ENABLED', true),
         'route_prefix' => 'media',
         'middleware' => ['web'],
     ],
@@ -165,7 +165,7 @@ Every key:
 | `variant.background` | `string` | `#ffffff` | — | Flatten color when a transparent image is converted to JPEG. |
 | `url_fallback_to_original` | `bool` | `false` | — | When `getUrl()` is asked for an un-generated variant: throw (`false`) or return the original's URL (`true`). |
 | `temporary_url_default_lifetime` | `int` | `5` | — | Default lifetime (minutes) for temporary/signed URLs when no expiry is passed. |
-| `stream.enabled` | `bool` | `true` | `MEDIA_STREAM_ENABLED` | Register the signed streaming route. The env value is read as a boolean (`false`/`0`/`off`/`no` turn it off). |
+| `stream.enabled` | `bool` | `true` | `MEDIA_STREAM_ENABLED` | Register the signed streaming route. The env value is read as a boolean (`false`/`0`/`off`/`no` turn it off; anything else throws). |
 | `stream.route_prefix` | `string` | `media` | — | URI prefix for the streaming route. |
 | `stream.middleware` | `list<string>` | `['web']` | — | Middleware stack for the streaming route. Laravel's `signed` is always appended. |
 | `path_generator` | `class-string<PathGenerator>` | `DefaultPathGenerator::class` | — | Directory layout for a media's files. |
@@ -189,7 +189,8 @@ Every key:
 
 Every `bool` switch is parsed as a boolean wherever it is read: `true`/`1`/`on`/`yes` turn it on
 and `false`/`0`/`off`/`no` turn it off, so a switch you feed from `.env` in your published config
-behaves as written.
+behaves as written. Anything else (say `MEDIA_STREAM_ENABLED=disabled`) throws
+`InvalidConfigurationException` instead of quietly reading as the default.
 
 ## Quick start
 

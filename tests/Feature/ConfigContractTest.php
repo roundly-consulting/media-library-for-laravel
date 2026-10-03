@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\PackageToolkit\Support\Config;
+
 /**
  * The config contract, pinned in both directions — and media is the package that proves why
  * the REVERSE direction has to exist.
@@ -52,8 +54,9 @@ it('reads MEDIA_STREAM_ENABLED as a boolean', function (string $value, bool $exp
 
     try {
         $config = require __DIR__.'/../../config/media.php';
+        config()->set('media.stream.enabled', $config['stream']['enabled']);
 
-        expect($config['stream']['enabled'])->toBe($expected);
+        expect(Config::boolean('media.stream.enabled', true))->toBe($expected);
     } finally {
         putenv('MEDIA_STREAM_ENABLED');
     }
@@ -66,5 +69,16 @@ it('reads MEDIA_STREAM_ENABLED as a boolean', function (string $value, bool $exp
     ['1', true],
     ['on', true],
     ['yes', true],
-    ['not-a-boolean', true],
 ]);
+
+it('hands an unreadable MEDIA_STREAM_ENABLED to the reader raw (strict config)', function (): void {
+    putenv('MEDIA_STREAM_ENABLED=disabled');
+
+    try {
+        $config = require __DIR__.'/../../config/media.php';
+
+        expect($config['stream']['enabled'])->toBe('disabled');
+    } finally {
+        putenv('MEDIA_STREAM_ENABLED');
+    }
+});

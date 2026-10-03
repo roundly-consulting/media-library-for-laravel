@@ -15,6 +15,7 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\CdnUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 /**
  * Every switch is read as a boolean, not compared with `=== true` / `!== false`. A host that
@@ -149,3 +150,14 @@ it('issues streamed temporary urls when the route switch is a truthy string', fu
     expect($media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5)))->toContain('/media/')
         ->and(mediaAbout())->toMatch('/Streaming route\s*\.*\s*ON/');
 })->with('truthy strings');
+
+it('refuses to resolve a streamed url when the route switch is unreadable (strict config)', function (): void {
+    config()->set('media.stream.enabled', 'disabled');
+
+    $media = Media::factory()->create([
+        'uuid' => '00000000-0000-4000-8000-0000000000b9', 'file_name' => 'a.jpg', 'disk' => 'secure', 'visibility' => 'private',
+    ]);
+
+    expect(fn (): string => $media->getTemporaryUrl(CarbonImmutable::now()->addMinutes(5)))
+        ->toThrow(InvalidConfigurationException::class, 'media.stream.enabled');
+});

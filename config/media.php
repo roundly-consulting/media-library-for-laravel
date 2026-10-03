@@ -37,9 +37,9 @@ return [
     'temporary_url_default_lifetime' => 5,
 
     // Signed streaming route (private media on disks without native temporaryUrl()).
-    // Parsed as a boolean ('false'/'0'/'off'/'no' disable it); an unparseable value keeps it on.
+    // Read as a strict boolean ('false'/'0'/'off'/'no' disable it); any other value throws.
     'stream' => [
-        'enabled' => filter_var(env('MEDIA_STREAM_ENABLED', true), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true,
+        'enabled' => env('MEDIA_STREAM_ENABLED', true),
         'route_prefix' => 'media',
         'middleware' => ['web'],   // 'signed' is always added by the package
     ],
