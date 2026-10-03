@@ -84,10 +84,14 @@ it('attaches and copies through the configured model', function (): void {
         ->and($copy->order_column)->toBe(2);
 });
 
-it('falls back to the packaged model for an eloquent model that is not a media', function (): void {
+it('refuses a foreign model instead of falling back to the packaged one', function (): void {
+    // The toolkit refuses any class that is not the packaged model or a subclass of it.
     config()->set('media.media_model', TestUser::class);
 
-    expect(MediaModel::class())->toBe(Media::class);
+    expect(fn (): string => MediaModel::class())->toThrow(
+        InvalidConfigurationException::class,
+        'Configuration value [media.media_model] must be a class-string of ['.Media::class.'], ['.TestUser::class.'] given.',
+    );
 });
 
 it('throws when the configured model is not a model class', function (): void {

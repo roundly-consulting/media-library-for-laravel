@@ -22,18 +22,15 @@ final class MediaModel
     /**
      * The configured media model.
      *
-     * A configured class that is a real Eloquent model but not a {@see Media} cannot serve the
-     * package (every action, event and observer is typed against `Media`), so it falls back to the
-     * packaged model — the same tolerance the provider's observer registration has always had. A
-     * value that is not a model class at all throws.
+     * Absent config resolves the packaged model; anything else must be that model or a subclass
+     * of it, or the toolkit's ModelResolver throws InvalidConfigurationException naming the key
+     * — a foreign class is never silently replaced.
      *
      * @return class-string<Media>
      */
     public static function class(): string
     {
-        $class = ModelResolver::for('media.media_model', Media::class);
-
-        return is_a($class, Media::class, true) ? $class : Media::class;
+        return ModelResolver::for('media.media_model', Media::class);
     }
 
     public static function new(): Media
