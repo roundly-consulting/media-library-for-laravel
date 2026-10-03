@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Tests;
 
+use Illuminate\Support\Facades\ParallelTesting;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\MediaLibrary\MediaLibraryServiceProvider;
@@ -80,9 +81,12 @@ abstract class TestCase extends PackageTestCase
                 'root' => storage_path('framework/testing/disks/hot'),
             ],
 
+            // Suffixed per parallel process, as Storage::fake() suffixes its own roots: every
+            // setUp() wipes this disk, and on a shared root that wipe deleted the files another
+            // process had just written and was about to stream back.
             'filesystems.disks.secure' => [
                 'driver' => 'local',
-                'root' => storage_path('framework/testing/disks/secure'),
+                'root' => storage_path('framework/testing/disks/secure'.(($token = ParallelTesting::token()) ? "_test_{$token}" : '')),
             ],
         ];
     }
