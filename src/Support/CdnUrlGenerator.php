@@ -42,15 +42,13 @@ final class CdnUrlGenerator implements UrlGenerator
 
     private function shouldRewrite(Media $media, string $variant): bool
     {
-        $base = config('media.cdn.base_url');
-
-        if (! is_string($base) || $base === '') {
+        if (MediaConfig::cdnBaseUrl() === null) {
             return false;
         }
 
-        $disks = config('media.cdn.disks');
+        $disks = MediaConfig::cdnDisks();
 
-        if (is_array($disks) && $disks !== [] && ! in_array($media->diskFor($variant), $disks, true)) {
+        if ($disks !== [] && ! in_array($media->diskFor($variant), $disks, true)) {
             return false;
         }
 
@@ -59,8 +57,7 @@ final class CdnUrlGenerator implements UrlGenerator
 
     private function rewriteHost(string $url): string
     {
-        $base = config('media.cdn.base_url');
-        $base = is_string($base) ? rtrim($base, '/') : '';
+        $base = rtrim((string) MediaConfig::cdnBaseUrl(), '/');
 
         $path = (string) parse_url($url, PHP_URL_PATH);
         $query = parse_url($url, PHP_URL_QUERY);

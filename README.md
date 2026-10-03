@@ -160,28 +160,28 @@ Every key:
 | `queue_variants_by_default` | `bool` | `false` | — | Queue all variant generation by default (otherwise sync). |
 | `queue_connection` | `?string` | `null` | `MEDIA_QUEUE_CONNECTION` | Queue connection for `GenerateVariantsJob`. `null` = default connection. |
 | `queue_name` | `?string` | `null` | `MEDIA_QUEUE` | Queue name for `GenerateVariantsJob`. `null` = default queue. |
-| `image_driver` | `string` | `imagick` | `MEDIA_IMAGE_DRIVER` | `imagick` or `gd`. Auto-falls back to `gd` when Imagick is absent. |
+| `image_driver` | `string` | `imagick` | `MEDIA_IMAGE_DRIVER` | `imagick` or `gd` (anything else throws). With `imagick` configured but the extension missing, `gd` is used. |
 | `variant.quality` | `int` | `75` | — | Default JPEG/WebP quality (1–100) for generated variants. |
 | `variant.background` | `string` | `#ffffff` | — | Flatten color when a transparent image is converted to JPEG. |
 | `url_fallback_to_original` | `bool` | `false` | — | When `getUrl()` is asked for an un-generated variant: throw (`false`) or return the original's URL (`true`). |
-| `temporary_url_default_lifetime` | `int` | `5` | — | Default lifetime (minutes) for temporary/signed URLs when no expiry is passed. |
+| `temporary_url_default_lifetime` | `int` | `5` | — | Default lifetime (minutes, at least `1`) for temporary/signed URLs when no expiry is passed. |
 | `stream.enabled` | `bool` | `true` | `MEDIA_STREAM_ENABLED` | Register the signed streaming route. The env value is read as a boolean (`false`/`0`/`off`/`no` turn it off; anything else throws). |
 | `stream.route_prefix` | `string` | `media` | — | URI prefix for the streaming route. |
 | `stream.middleware` | `list<string>` | `['web']` | — | Middleware stack for the streaming route. Laravel's `signed` is always appended. |
-| `path_generator` | `class-string<PathGenerator>` | `DefaultPathGenerator::class` | — | Directory layout for a media's files. |
-| `file_namer` | `class-string<FileNamer>` | `DefaultFileNamer::class` | — | Original and variant file naming. |
-| `default_visibility` | `string` | `public` | — | `public` or `private` for new media when a bucket/add doesn't set it. |
-| `max_file_size` | `?int` | `268435456` | — | Package-level size cap (bytes): enforced on every add (and on a remote download) and emitted by the derived validation rules. A bucket's own `maxFileSize()` overrides it; `null` = no limit. |
+| `path_generator` | `class-string<PathGenerator>` | `DefaultPathGenerator::class` | — | Directory layout for a media's files. A class that is not a `PathGenerator` throws when resolved. |
+| `file_namer` | `class-string<FileNamer>` | `DefaultFileNamer::class` | — | Original and variant file naming. A class that is not a `FileNamer` throws when resolved. |
+| `default_visibility` | `string` | `public` | — | `public` or `private` for new media when a bucket/add doesn't set it. Anything else throws — a typo is never stored (it would read as public). |
+| `max_file_size` | `?int` | `268435456` | — | Package-level size cap (bytes): enforced on every add (and on a remote download) and emitted by the derived validation rules. A bucket's own `maxFileSize()` overrides it; `null` = no limit, otherwise at least `1`. |
 | `remote.headers` | `array<string,string>` | `[]` | — | Extra HTTP headers for `addMediaFromUrl()`. |
-| `remote.timeout` | `int` | `30` | — | HTTP timeout (seconds) for `addMediaFromUrl()`. |
+| `remote.timeout` | `int` | `30` | — | HTTP timeout (seconds, at least `1`) for `addMediaFromUrl()`. |
 | `deduplicate` | `bool` | `true` | — | Reuse storage for identical bytes on the same `(disk, visibility)`. |
 | `checksum_algorithm` | `string` | `sha256` | — | Hash for the content checksum (dedup key + integrity baseline). One of `sha256`, `sha384`, `sha512`, `sha512/256`, `sha3-256`, `sha3-384`, `sha3-512`; anything else (md5, sha1, crc32…) throws `InvalidConfigurationException`, because a collision-prone dedup key would let one upload take over another's file. |
 | `verify_checksum_on_read` | `bool` | `false` | — | Re-hash the original on stream/download; throws `ChecksumMismatch` on drift. |
 | `placeholders.thumbhash` | `bool` | `true` | — | Compute a ThumbHash LQIP on add for images. |
 | `placeholders.blurhash` | `bool` | `true` | — | Compute a Blurhash LQIP on add for images. |
 | `responsive.widths` | `list<int>` | `[320, 640, 960, 1280, 1920]` | — | Default responsive `srcset` ladder, overridable per bucket. |
-| `drafts.ttl` | `int` | `1440` | — | Minutes before an unbound draft is prunable (default 24h). |
-| `url_generator` | `class-string<UrlGenerator>` | `DefaultUrlGenerator::class` | — | URL building strategy. Takes precedence over the CDN generator. |
+| `drafts.ttl` | `int` | `1440` | — | Minutes (at least `1`) before an unbound draft is prunable (default 24h). |
+| `url_generator` | `class-string<UrlGenerator>` | `DefaultUrlGenerator::class` | — | URL building strategy. Takes precedence over the CDN generator; a class that is not a `UrlGenerator` throws when resolved. |
 | `cdn.enabled` | `bool` | `false` | — | Rewrite public URLs onto a CDN host. |
 | `cdn.base_url` | `?string` | `null` | `MEDIA_CDN_URL` | CDN base URL, e.g. `https://cdn.example.com`. |
 | `cdn.cache_bust` | `bool` | `true` | — | Append `?v={updated_at}` to public URLs so replaced media busts caches. |
@@ -191,6 +191,14 @@ Every `bool` switch is parsed as a boolean wherever it is read: `true`/`1`/`on`/
 and `false`/`0`/`off`/`no` turn it off, so a switch you feed from `.env` in your published config
 behaves as written. Anything else (say `MEDIA_STREAM_ENABLED=disabled`) throws
 `InvalidConfigurationException` instead of quietly reading as the default.
+
+Every other setting is read just as strictly. A default applies only when the key is absent
+(unset or `null`). Integers accept an `int` or a plain integer string (every env value is a
+string), so `thirty`, `5.5` or a blank value throws rather than becoming `0` — which for
+`remote.timeout` would have meant no timeout at all. A blank or non-string disk, queue, table
+name, route prefix, background or CDN base URL throws, and so does a `default_visibility` or
+`image_driver` typo, a blank `checksum_algorithm`, or a junk entry in a width, middleware,
+header or CDN-disk list. `php artisan about` renders a broken setting as `INVALID`.
 
 ## Quick start
 

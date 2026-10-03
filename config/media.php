@@ -6,6 +6,9 @@ use RoundlyConsulting\MediaLibrary\Support\DefaultFileNamer;
 use RoundlyConsulting\MediaLibrary\Support\DefaultPathGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
 
+// Every value is read strictly: a default applies only when a key is unset (null). A junk
+// integer ("thirty", "5.5", ""), a typo in a fixed vocabulary, a blank or non-string name, or a
+// junk list entry throws an InvalidConfigurationException instead of falling back.
 return [
     // Default disk for ORIGINALS when a bucket/add doesn't specify one.
     'disk' => env('MEDIA_DISK', 'public'),
@@ -22,7 +25,8 @@ return [
     'queue_connection' => env('MEDIA_QUEUE_CONNECTION'),  // null => default connection
     'queue_name' => env('MEDIA_QUEUE'),             // null => default queue
 
-    // Image driver: 'imagick' (default) | 'gd'. Auto-falls back to gd if imagick is absent.
+    // Image driver: 'imagick' (default) | 'gd'; anything else throws. With 'imagick' and no
+    // imagick extension, gd is used.
     'image_driver' => env('MEDIA_IMAGE_DRIVER', 'imagick'),
     'variant' => [
         'quality' => 75,         // default jpg/webp quality
@@ -33,7 +37,7 @@ return [
     // fall back to the original's URL (true).
     'url_fallback_to_original' => false,
 
-    // Default lifetime (minutes) for temporary/signed URLs when not given explicitly.
+    // Default lifetime (minutes, at least 1) for temporary/signed URLs when not given explicitly.
     'temporary_url_default_lifetime' => 5,
 
     // Signed streaming route (private media on disks without native temporaryUrl()).
@@ -49,17 +53,17 @@ return [
     'file_namer' => DefaultFileNamer::class,
 
     // Default visibility for new media when a bucket/add doesn't set it.
-    'default_visibility' => 'public',  // 'public' | 'private'
+    'default_visibility' => 'public',  // 'public' | 'private' (anything else throws)
 
     // Package-level max file size, in bytes: enforced on every add (and remote download) and
     // emitted by the validation rules derived from a bucket. A bucket's own ->maxFileSize()
-    // overrides it; null => no package-level limit.
+    // overrides it; null => no package-level limit, otherwise at least 1.
     'max_file_size' => 1024 * 1024 * 256,
 
     // addMediaFromUrl: extra request headers / timeout for the Http client.
     'remote' => [
         'headers' => [],
-        'timeout' => 30,
+        'timeout' => 30,  // seconds, at least 1 (0 would mean no timeout)
     ],
 
     // Content-addressable dedup + integrity (§7.1/§7.2).
@@ -80,7 +84,7 @@ return [
 
     // Draft / temporary media (§6.7).
     'drafts' => [
-        'ttl' => 1440,                         // minutes (24h) before an unbound draft is prunable
+        'ttl' => 1440,                         // minutes (24h, at least 1) before an unbound draft is prunable
     ],
 
     // URL generation (§9.4) — swap for a CDN-aware generator.

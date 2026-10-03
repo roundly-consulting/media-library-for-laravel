@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use RoundlyConsulting\MediaLibrary\Http\Controllers\MediaStreamController;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaUrlResolver;
 
-$prefix = config('media.stream.route_prefix');
-$prefix = is_string($prefix) ? $prefix : 'media';
+$prefix = MediaConfig::streamRoutePrefix();
 
-$middleware = config('media.stream.middleware');
-$middleware = is_array($middleware) ? array_values($middleware) : [];
+$middleware = MediaConfig::streamMiddleware();
 
 // 'signed' is always enforced so private media is reachable only with a valid signature.
 $middleware[] = 'signed';

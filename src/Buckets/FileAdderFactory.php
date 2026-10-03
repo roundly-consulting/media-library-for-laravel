@@ -14,6 +14,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\InvalidBase64Data;
 use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileRejected;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 
 /**
  * Normalizes every supported media source (upload, path, URL, disk file, raw string,
@@ -67,12 +68,7 @@ final class FileAdderFactory
             throw RemoteFileRejected::unsupportedScheme($url);
         }
 
-        $headers = config('media.remote.headers');
-        $headers = is_array($headers) ? $headers : [];
-        $timeout = config('media.remote.timeout');
-        $timeout = is_numeric($timeout) ? (int) $timeout : 30;
-
-        $response = Http::withHeaders($headers)->timeout($timeout)->get($url);
+        $response = Http::withHeaders(MediaConfig::remoteHeaders())->timeout(MediaConfig::remoteTimeout())->get($url);
 
         if (! $response->successful()) {
             throw FileDoesNotExist::forPath($url);
@@ -202,8 +198,6 @@ final class FileAdderFactory
 
     private function configDisk(): string
     {
-        $disk = config('media.disk');
-
-        return is_string($disk) ? $disk : 'public';
+        return MediaConfig::disk();
     }
 }

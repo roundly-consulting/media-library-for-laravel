@@ -6,6 +6,7 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\PackageToolkit\Support\Config;
@@ -80,14 +81,14 @@ final class DispatchVariantsAction
     {
         $job = new GenerateVariantsJob((int) $media->getKey(), $variantNames);
 
-        $connection = config('media.queue_connection');
-        $queue ??= config('media.queue_name');
+        $connection = MediaConfig::queueConnection();
+        $queue ??= MediaConfig::queueName();
 
-        if (is_string($connection)) {
+        if ($connection !== null) {
             $job->onConnection($connection);
         }
 
-        if (is_string($queue)) {
+        if ($queue !== null) {
             $job->onQueue($queue);
         }
 

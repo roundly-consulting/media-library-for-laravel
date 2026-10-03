@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 function userWithMedia(array $attributes = []): array
 {
@@ -64,12 +65,23 @@ it('honours an explicit expiry on the temporary url helper', function (): void {
 });
 
 it('uses the configured default lifetime when no expiry is given', function (): void {
-    config()->set('media.temporary_url_default_lifetime', 'not-a-number');
+    config()->set('media.temporary_url_default_lifetime', '10');
 
     [$user] = userWithMedia(['disk' => 'secure', 'visibility' => 'private']);
 
     expect($user->getFirstTemporaryUrl('avatar'))->toContain('/media/'.mediaUuid('trait-uuid'));
 });
+
+it('refuses a junk or non-positive default lifetime (strict config)', function (mixed $value, string $message): void {
+    config()->set('media.temporary_url_default_lifetime', $value);
+
+    [$user] = userWithMedia(['disk' => 'secure', 'visibility' => 'private']);
+
+    expect(fn () => $user->getFirstTemporaryUrl('avatar'))->toThrow(InvalidConfigurationException::class, $message);
+})->with([
+    'junk' => ['not-a-number', 'Configuration value [media.temporary_url_default_lifetime] must be an integer, [not-a-number] given.'],
+    'zero' => [0, 'Configuration value [media.temporary_url_default_lifetime] must be at least 1, [0] given.'],
+]);
 
 it('returns the fallback url from the temporary helper when the bucket is empty', function (): void {
     $user = TestUser::query()->create(['name' => 'Jane']);

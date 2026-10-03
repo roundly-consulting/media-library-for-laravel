@@ -39,12 +39,9 @@ final class DiskResolver
      */
     public function resolveVariantsDisk(?string $override, ?MediaBucket $bucket, string $originalDisk): string
     {
-        $configVariantsDisk = config('media.variants_disk');
-        $configVariantsDisk = is_string($configVariantsDisk) ? $configVariantsDisk : null;
-
         $disk = $override
             ?? $bucket?->getVariantsDisk()
-            ?? $configVariantsDisk
+            ?? MediaConfig::variantsDisk()
             ?? $originalDisk;
 
         $this->ensureDiskExists($disk);
@@ -78,8 +75,6 @@ final class DiskResolver
 
     private function configDisk(): string
     {
-        $disk = config('media.disk');
-
-        return is_string($disk) ? $disk : 'public';
+        return MediaConfig::disk();
     }
 }

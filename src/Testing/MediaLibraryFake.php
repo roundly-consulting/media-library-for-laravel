@@ -20,6 +20,7 @@ use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
@@ -73,8 +74,8 @@ final class MediaLibraryFake extends MediaLibraryManager
         $media->mime_type = $state->file->mimeType;
         $media->extension = FileNames::extensionOf($media->file_name);
         $media->size = $state->file->size;
-        $media->disk = $state->diskOverride ?? $bucket?->getDisk() ?? $this->configString('media.disk', 'public');
-        $media->visibility = $state->visibility ?? $bucket?->getVisibility() ?? $this->configString('media.default_visibility', 'public');
+        $media->disk = $state->diskOverride ?? $bucket?->getDisk() ?? MediaConfig::disk();
+        $media->visibility = $state->visibility ?? $bucket?->getVisibility() ?? MediaConfig::defaultVisibility();
         $media->custom_properties = $state->customProperties;
         $media->generated_variants = [];
 
@@ -442,17 +443,8 @@ final class MediaLibraryFake extends MediaLibraryManager
         return FileNames::sanitize($this->container->make(FileNamer::class)->originalFileName($requested));
     }
 
-    private function configString(string $key, string $default): string
-    {
-        $value = config($key);
-
-        return is_string($value) ? $value : $default;
-    }
-
     private function draftTtl(): int
     {
-        $ttl = config('media.drafts.ttl');
-
-        return is_numeric($ttl) ? (int) $ttl : 1440;
+        return MediaConfig::draftTtl();
     }
 }

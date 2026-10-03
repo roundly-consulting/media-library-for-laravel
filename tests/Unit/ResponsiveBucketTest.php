@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 use RoundlyConsulting\MediaLibrary\Variants\ResponsiveImageGenerator;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 it('is opt-in: a bucket has no responsive widths by default', function (): void {
     $bucket = new MediaBucket('x');
@@ -23,12 +24,21 @@ it('uses the config default ladder when responsiveWidths is called with no args'
         ->and($bucket->getResponsiveWidths())->toBe([100, 200, 300]);
 });
 
-it('falls back to the built-in ladder when config is malformed', function (): void {
-    config()->set('media.responsive.widths', 'nonsense');
+it('refuses a malformed configured ladder instead of using the built-in one (strict config)', function (mixed $widths): void {
+    config()->set('media.responsive.widths', $widths);
 
-    $bucket = (new MediaBucket('x'))->responsiveWidths();
+    expect(fn () => (new MediaBucket('x'))->responsiveWidths())
+        ->toThrow(InvalidConfigurationException::class, 'media.responsive.widths');
+})->with([
+    'a string' => ['nonsense'],
+    'a zero width' => [[320, 0]],
+    'a junk width' => [[320, 'wide']],
+]);
 
-    expect($bucket->getResponsiveWidths())->toBe([320, 640, 960, 1280, 1920]);
+it('uses the built-in ladder when the configured one is absent (strict config)', function (): void {
+    config()->set('media.responsive.widths', null);
+
+    expect((new MediaBucket('x'))->responsiveWidths()->getResponsiveWidths())->toBe([320, 640, 960, 1280, 1920]);
 });
 
 it('dedupes, drops non-positive widths and sorts ascending', function (): void {

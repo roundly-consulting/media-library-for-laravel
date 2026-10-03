@@ -6,9 +6,11 @@ namespace RoundlyConsulting\MediaLibrary\Variants\ImageDrivers;
 
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Exceptions\VariantDriverUnavailable;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 
 /**
- * Selects the image driver from `config('media.image_driver')`, automatically falling back from
+ * Selects the image driver from `config('media.image_driver')` (`imagick` or `gd`; anything else
+ * throws), automatically falling back from
  * Imagick to GD when ext-imagick is absent. Throws {@see VariantDriverUnavailable} only when a
  * variant is actually requested and neither extension is loaded — so media with no variants
  * never needs an image extension.
@@ -40,8 +42,6 @@ final class ImageDriverFactory
 
     private static function configuredDriver(): string
     {
-        $driver = config('media.image_driver');
-
-        return $driver === 'gd' ? 'gd' : 'imagick';
+        return MediaConfig::imageDriver();
     }
 }

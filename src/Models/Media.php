@@ -23,6 +23,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\ChecksumMismatch;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Variants\ResponsiveImageGenerator;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
@@ -85,9 +86,7 @@ class Media extends Model
 
     public function getTable(): string
     {
-        $table = config('media.table_name');
-
-        return is_string($table) ? $table : 'media';
+        return MediaConfig::tableName();
     }
 
     public function getRouteKeyName(): string

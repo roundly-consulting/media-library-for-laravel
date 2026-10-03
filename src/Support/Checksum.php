@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Enums\ChecksumAlgorithm;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
-use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * Content hashing plus the `(disk, visibility, checksum)` dedup lookup (§7.1/§7.2).
@@ -82,12 +81,6 @@ final class Checksum
      */
     public function algorithm(): string
     {
-        $configured = config('media.checksum_algorithm');
-
-        if ($configured === null || $configured === '') {
-            return ChecksumAlgorithm::Sha256->value;
-        }
-
-        return Config::enum('media.checksum_algorithm', ChecksumAlgorithm::class)->value;
+        return MediaConfig::checksumAlgorithm()->value;
     }
 }

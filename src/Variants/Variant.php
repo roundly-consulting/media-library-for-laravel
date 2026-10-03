@@ -7,6 +7,7 @@ namespace RoundlyConsulting\MediaLibrary\Variants;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\ManipulationSet;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 
 /**
  * A fluent, declarative definition of one image derivative (a "variant").
@@ -209,15 +210,11 @@ final class Variant
 
     private function configQuality(): int
     {
-        $quality = config('media.variant.quality');
-
-        return is_int($quality) ? $quality : 75;
+        return MediaConfig::variantQuality();
     }
 
     private function configBackground(): string
     {
-        $background = config('media.variant.background');
-
-        return is_string($background) ? $background : '#ffffff';
+        return MediaConfig::variantBackground();
     }
 }

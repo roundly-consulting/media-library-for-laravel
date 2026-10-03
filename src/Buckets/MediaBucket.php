@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Buckets;
 
 use Closure;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Variants\VariantCollection;
 use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
 
@@ -256,21 +257,7 @@ final class MediaBucket
     /** @return list<int> */
     private function configWidths(): array
     {
-        $widths = config('media.responsive.widths');
-
-        if (! is_array($widths)) {
-            return [320, 640, 960, 1280, 1920];
-        }
-
-        $clean = [];
-
-        foreach ($widths as $width) {
-            if (is_int($width) && $width > 0) {
-                $clean[] = $width;
-            }
-        }
-
-        return array_values(array_unique($clean));
+        return MediaConfig::responsiveWidths();
     }
 
     /**

@@ -6,6 +6,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\VariantDriverUnavailable;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\GdDriver;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImagickDriver;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 /** @return callable(string): bool */
 function fakeExtensions(string ...$loaded): callable
@@ -61,3 +62,18 @@ it('prefers imagick when both extensions are loaded and gd is not requested', fu
 it('throws when neither image extension is available', function (): void {
     ImageDriverFactory::make('imagick', fakeExtensions());
 })->throws(VariantDriverUnavailable::class);
+
+it('refuses an image driver typo instead of using imagick (strict config)', function (mixed $driver): void {
+    config()->set('media.image_driver', $driver);
+
+    expect(fn () => ImageDriverFactory::make(hasExtension: fakeExtensions('gd', 'imagick')))->toThrow(
+        InvalidConfigurationException::class,
+        'Configuration value [media.image_driver] must be one of [imagick, gd]',
+    );
+})->with(['typo' => ['GD'], 'blank' => [''], 'unknown' => ['vips']]);
+
+it('uses imagick when the driver is absent (strict config)', function (): void {
+    config()->set('media.image_driver', null);
+
+    expect(ImageDriverFactory::make(hasExtension: fakeExtensions('imagick')))->toBeInstanceOf(ImagickDriver::class);
+});

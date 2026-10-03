@@ -16,6 +16,8 @@ use RoundlyConsulting\MediaLibrary\Support\DefaultFileNamer;
 use RoundlyConsulting\MediaLibrary\Support\DefaultPathGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\MediaUrlResolver;
+use RoundlyConsulting\MediaLibrary\Tests\Fixtures\HostUrlGenerator;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 it('merges the package config', function (): void {
     expect(config('media.disk'))->toBe('public')
@@ -42,12 +44,29 @@ it('binds the cdn url generator when cdn is enabled', function (): void {
 
 it('honours a custom url_generator override over the cdn generator', function (): void {
     config()->set('media.cdn.enabled', true);
-    config()->set('media.url_generator', DefaultFileNamer::class); // any other class
+    config()->set('media.url_generator', HostUrlGenerator::class);
 
     (new MediaLibraryServiceProvider($this->app))->register();
 
-    expect(app(UrlGenerator::class))->toBeInstanceOf(DefaultFileNamer::class);
+    expect(app(UrlGenerator::class))->toBeInstanceOf(HostUrlGenerator::class);
 });
+
+it('refuses a seam class that does not implement its contract (strict config)', function (string $key, string $contract): void {
+    foreach ([$contract === FileNamer::class ? DefaultPathGenerator::class : DefaultFileNamer::class, 'App\\Missing\\Seam', ''] as $value) {
+        config()->set($key, $value);
+
+        (new MediaLibraryServiceProvider($this->app))->register();
+
+        expect(fn () => app($contract))->toThrow(
+            InvalidConfigurationException::class,
+            "Configuration value [{$key}] must be a class-string of [{$contract}]",
+        );
+    }
+})->with([
+    'path generator' => ['media.path_generator', PathGenerator::class],
+    'file namer' => ['media.file_namer', FileNamer::class],
+    'url generator' => ['media.url_generator', UrlGenerator::class],
+]);
 
 it('binds the seam contracts from config', function (): void {
     expect(app(PathGenerator::class))->toBeInstanceOf(DefaultPathGenerator::class)

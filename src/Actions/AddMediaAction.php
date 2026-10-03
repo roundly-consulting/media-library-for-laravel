@@ -21,6 +21,7 @@ use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
@@ -238,10 +239,7 @@ final class AddMediaAction
 
     private function resolveVisibility(?string $override, ?MediaBucket $bucket): string
     {
-        $default = config('media.default_visibility');
-        $default = is_string($default) ? $default : 'public';
-
-        return $override ?? $bucket?->getVisibility() ?? $default;
+        return $override ?? $bucket?->getVisibility() ?? MediaConfig::defaultVisibility();
     }
 
     private function nextOrderColumn(HasMedia|Model|null $owner, string $bucket): int
@@ -260,8 +258,6 @@ final class AddMediaAction
 
     private function draftTtl(): int
     {
-        $ttl = config('media.drafts.ttl');
-
-        return is_numeric($ttl) ? (int) $ttl : 1440;
+        return MediaConfig::draftTtl();
     }
 }

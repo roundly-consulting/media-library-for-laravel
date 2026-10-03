@@ -18,6 +18,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaDoesNotBelongToModel;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /**
@@ -198,8 +199,6 @@ final readonly class ModelMedia
 
     private function defaultTemporaryUrlExpiry(): DateTimeInterface
     {
-        $minutes = config('media.temporary_url_default_lifetime');
-
-        return CarbonImmutable::now()->addMinutes(is_numeric($minutes) ? (int) $minutes : 5);
+        return CarbonImmutable::now()->addMinutes(MediaConfig::temporaryUrlLifetime());
     }
 }

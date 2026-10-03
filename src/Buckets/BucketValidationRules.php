@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Buckets;
 
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 
 /**
  * Derives a Laravel validation rules array from a media bucket's declared constraints
@@ -77,9 +78,7 @@ final class BucketValidationRules
             return $own;
         }
 
-        $configured = config('media.max_file_size');
-
-        return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : null;
+        return MediaConfig::maxFileSize();
     }
 
     private function dimensionRule(MediaBucket $bucket): ?string

@@ -5,12 +5,13 @@ declare(strict_types=1);
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        $table = is_string(config('media.table_name')) ? config('media.table_name') : 'media';
+        $table = MediaConfig::tableName();
 
         Schema::create($table, function (Blueprint $table): void {
             $table->id();
