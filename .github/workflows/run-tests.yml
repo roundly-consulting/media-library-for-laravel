@@ -38,8 +38,6 @@ jobs:
           echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
 
       - name: Install dependencies
-        env:
-          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.COMPOSER_AUTH_TOKEN }}"}}'
         run: |
           composer require --dev "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
@@ -69,8 +67,6 @@ jobs:
 
       - name: Install dependencies
         uses: ramsey/composer-install@v4
-        env:
-          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.COMPOSER_AUTH_TOKEN }}"}}'
 
       - name: Execute tests with coverage (fails under 90%)
         run: composer test-coverage
@@ -106,8 +102,6 @@ jobs:
           coverage: none
 
       - name: Install dependencies
-        env:
-          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.COMPOSER_AUTH_TOKEN }}"}}'
         run: composer update --prefer-stable --prefer-dist --no-interaction
 
       - name: Execute tests against postgres

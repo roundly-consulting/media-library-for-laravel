@@ -18,8 +18,6 @@ jobs:
 
       - name: Install composer dependencies
         uses: ramsey/composer-install@v4
-        env:
-          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.COMPOSER_AUTH_TOKEN }}"}}'
 
       - name: Run PHPStan
         run: composer analyse -- --error-format=github
