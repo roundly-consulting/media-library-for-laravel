@@ -6,9 +6,9 @@ use RoundlyConsulting\MediaLibrary\Support\DefaultFileNamer;
 use RoundlyConsulting\MediaLibrary\Support\DefaultPathGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
 
-// Every value is read strictly: a default applies only when a key is unset (null). A junk
-// integer ("thirty", "5.5", ""), a typo in a fixed vocabulary, a blank or non-string name, or a
-// junk list entry throws an InvalidConfigurationException instead of falling back.
+// Every value is read strictly: a value that is not set (null, or blank like a host's KEY=)
+// takes its default. A junk integer ("thirty", "5.5"), a typo in a fixed vocabulary, a non-string
+// name, or a junk list entry throws an InvalidConfigurationException instead of falling back.
 return [
     // Default disk for ORIGINALS when a bucket/add doesn't specify one.
     'disk' => env('MEDIA_DISK', 'public'),

@@ -189,16 +189,19 @@ Every key:
 
 Every `bool` switch is parsed as a boolean wherever it is read: `true`/`1`/`on`/`yes` turn it on
 and `false`/`0`/`off`/`no` turn it off, so a switch you feed from `.env` in your published config
-behaves as written. Anything else (say `MEDIA_STREAM_ENABLED=disabled`) throws
-`InvalidConfigurationException` instead of quietly reading as the default.
+behaves as written. A blank value (`MEDIA_STREAM_ENABLED=`) is not set, so the default applies.
+Anything else (say `MEDIA_STREAM_ENABLED=disabled`) throws `InvalidConfigurationException`
+instead of quietly reading as the default.
 
-Every other setting is read just as strictly. A default applies only when the key is absent
-(unset or `null`). Integers accept an `int` or a plain integer string (every env value is a
-string), so `thirty`, `5.5` or a blank value throws rather than becoming `0` — which for
-`remote.timeout` would have meant no timeout at all. A blank or non-string disk, queue, table
-name, route prefix, background or CDN base URL throws, and so does a `default_visibility` or
-`image_driver` typo, a blank `checksum_algorithm`, or a junk entry in a width, middleware,
-header or CDN-disk list. `php artisan about` renders a broken setting as `INVALID`.
+Every other setting is read just as strictly. A setting that is not set — absent, `null`, or
+blank like a host's `MEDIA_VARIANTS_DISK=` — takes its default, and an optional one
+(`variants_disk`, the queue connection and name, `max_file_size`, `cdn.base_url`) stays unset;
+a blank `path_generator`, `file_namer` or `url_generator` binds the packaged class. Integers
+accept an `int` or a plain integer string (every env value is a string), so `thirty` or `5.5`
+throws rather than becoming `0` — which for `remote.timeout` would have meant no timeout at
+all. A non-string disk, queue, table name, route prefix, background or CDN base URL throws,
+and so does a `default_visibility`, `image_driver` or `checksum_algorithm` typo, or a junk
+entry in a width, middleware, header or CDN-disk list. `php artisan about` renders a broken setting as `INVALID`.
 
 ## Quick start
 

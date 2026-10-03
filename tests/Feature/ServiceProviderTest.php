@@ -52,7 +52,7 @@ it('honours a custom url_generator override over the cdn generator', function ()
 });
 
 it('refuses a seam class that does not implement its contract (strict config)', function (string $key, string $contract): void {
-    foreach ([$contract === FileNamer::class ? DefaultPathGenerator::class : DefaultFileNamer::class, 'App\\Missing\\Seam', ''] as $value) {
+    foreach ([$contract === FileNamer::class ? DefaultPathGenerator::class : DefaultFileNamer::class, 'App\\Missing\\Seam', false] as $value) {
         config()->set($key, $value);
 
         (new MediaLibraryServiceProvider($this->app))->register();
@@ -67,6 +67,27 @@ it('refuses a seam class that does not implement its contract (strict config)', 
     'file namer' => ['media.file_namer', FileNamer::class],
     'url generator' => ['media.url_generator', UrlGenerator::class],
 ]);
+
+it('binds the default seam when its class is blank, which is not set (strict config)', function (string $blank): void {
+    config()->set('media.path_generator', $blank);
+    config()->set('media.file_namer', $blank);
+    config()->set('media.url_generator', $blank);
+
+    (new MediaLibraryServiceProvider($this->app))->register();
+
+    expect(app(PathGenerator::class))->toBeInstanceOf(DefaultPathGenerator::class)
+        ->and(app(FileNamer::class))->toBeInstanceOf(DefaultFileNamer::class)
+        ->and(app(UrlGenerator::class))->toBeInstanceOf(DefaultUrlGenerator::class);
+})->with(['empty' => [''], 'whitespace' => [' ']]);
+
+it('keeps the cdn url generator when the url_generator override is blank (strict config)', function (): void {
+    config()->set('media.cdn.enabled', true);
+    config()->set('media.url_generator', '');
+
+    (new MediaLibraryServiceProvider($this->app))->register();
+
+    expect(app(UrlGenerator::class))->toBeInstanceOf(CdnUrlGenerator::class);
+});
 
 it('binds the seam contracts from config', function (): void {
     expect(app(PathGenerator::class))->toBeInstanceOf(DefaultPathGenerator::class)

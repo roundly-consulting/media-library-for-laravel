@@ -139,14 +139,15 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
 
     /**
      * Bind the URL generator. A host-set `media.url_generator` always wins (override) and must
-     * implement UrlGenerator; otherwise the CDN-aware generator is used when `media.cdn.enabled`,
-     * else the default.
+     * implement UrlGenerator; otherwise — not set (absent, null or blank) or the default — the
+     * CDN-aware generator is used when `media.cdn.enabled`, else the default.
      */
     private function bindUrlGenerator(): void
     {
         $configured = config('media.url_generator');
+        $notSet = $configured === null || (is_string($configured) && trim($configured) === '');
 
-        if ($configured !== null && $configured !== DefaultUrlGenerator::class) {
+        if (! $notSet && $configured !== DefaultUrlGenerator::class) {
             // A host override: anything that is not a UrlGenerator throws on resolve.
             $this->bindFromConfig(UrlGenerator::class, 'media.url_generator', DefaultUrlGenerator::class);
 

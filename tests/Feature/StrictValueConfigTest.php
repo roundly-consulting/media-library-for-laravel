@@ -6,11 +6,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\MediaLibrary\Enums\ChecksumAlgorithm;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\CdnUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\GdDriver;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
@@ -19,8 +21,11 @@ use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 /**
  * Sweep 2 — the non-boolean settings. A `default_visibility` typo (`privat`) was stored as-is,
  * and Media::isPublic() reads anything but `private` as PUBLIC; an `image_driver` typo became
- * imagick; `(int)`/`is_numeric` turned a junk timeout, TTL or size into 0 or the default; a blank
+ * imagick; `(int)`/`is_numeric` turned a junk timeout, TTL or size into 0 or the default; a junk
  * disk, prefix or table name fell back. Each now throws, naming the key.
+ *
+ * Sweep 3 — a blank value (a host's `KEY=`, or whitespace) is not set: it takes the default, or
+ * for an optional setting none, exactly like an absent key. Junk still throws.
  */
 const STRICT_PIXEL = __DIR__.'/../files/pixel.png';
 
@@ -32,40 +37,86 @@ it('refuses a default visibility typo instead of storing it (strict config)', fu
         'Configuration value [media.default_visibility] must be one of [public, private]',
     )
         ->and(Media::query()->count())->toBe(0);
-})->with(['typo' => ['privat'], 'capitalised' => ['Private'], 'blank' => ['']]);
+})->with(['typo' => ['privat'], 'capitalised' => ['Private']]);
 
-it('stores public media when the default visibility is absent (strict config)', function (): void {
-    config()->set('media.default_visibility', null);
+it('stores public media when the default visibility is absent or blank (strict config)', function (?string $value): void {
+    config()->set('media.default_visibility', $value);
 
     expect(MediaLibrary::add(STRICT_PIXEL)->toBucket('brand')->visibility)->toBe('public');
-});
+})->with(['absent' => [null], 'blank' => [''], 'whitespace' => [' ']]);
 
-it('refuses a blank or non-string disk setting (strict config)', function (string $key, mixed $value): void {
+it('refuses a non-string disk setting (strict config)', function (string $key, mixed $value): void {
     config()->set($key, $value);
 
     expect(fn () => MediaLibrary::add(STRICT_PIXEL)->toBucket('brand'))
         ->toThrow(InvalidConfigurationException::class, "Configuration value [{$key}] must be a non-empty string");
 })->with([
-    'disk blank' => ['media.disk', ''],
     'disk array' => ['media.disk', ['public']],
-    'variants disk blank' => ['media.variants_disk', ' '],
+    'disk bool' => ['media.disk', true],
     'variants disk int' => ['media.variants_disk', 3],
 ]);
 
-it('refuses a blank or non-string table name (strict config)', function (mixed $value): void {
+it('reads a blank disk setting as not set (strict config)', function (string $blank): void {
+    config()->set('media.disk', $blank);
+    config()->set('media.variants_disk', $blank);
+
+    $media = MediaLibrary::add(STRICT_PIXEL)->toBucket('brand');
+
+    expect(MediaConfig::disk())->toBe('public')
+        ->and(MediaConfig::variantsDisk())->toBeNull()
+        ->and($media->disk)->toBe('public');
+})->with(['empty' => [''], 'whitespace' => [' ']]);
+
+it('refuses a non-string table name (strict config)', function (mixed $value): void {
     config()->set('media.table_name', $value);
 
     expect(fn () => (new Media)->getTable())
         ->toThrow(InvalidConfigurationException::class, 'Configuration value [media.table_name] must be a non-empty string');
-})->with(['blank' => [''], 'an int' => [1]]);
+})->with(['an int' => [1], 'an array' => [['media']]]);
 
-it('uses the media table when the name is absent (strict config)', function (): void {
-    config()->set('media.table_name', null);
+it('uses the media table when the name is absent or blank (strict config)', function (?string $value): void {
+    config()->set('media.table_name', $value);
 
     expect((new Media)->getTable())->toBe('media');
+})->with(['absent' => [null], 'blank' => [''], 'whitespace' => ['  ']]);
+
+it('reads a blank optional setting as not set, so it stays off (strict config)', function (): void {
+    config()->set('media.queue_connection', '');
+    config()->set('media.queue_name', ' ');
+    config()->set('media.max_file_size', '');
+    config()->set('media.remote.headers', '');
+    config()->set('media.responsive.widths', ' ');
+    config()->set('media.cdn.base_url', '');
+    config()->set('media.cdn.disks', '');
+    config()->set('media.stream.middleware', '');
+
+    expect(MediaConfig::queueConnection())->toBeNull()
+        ->and(MediaConfig::queueName())->toBeNull()
+        ->and(MediaConfig::maxFileSize())->toBeNull()
+        ->and(MediaConfig::remoteHeaders())->toBe([])
+        ->and(MediaConfig::responsiveWidths())->toBe(MediaConfig::DEFAULT_WIDTHS)
+        ->and(MediaConfig::cdnBaseUrl())->toBeNull()
+        ->and(MediaConfig::cdnDisks())->toBe([])
+        ->and(MediaConfig::streamMiddleware())->toBe(['web']);
 });
 
-it('refuses a blank or non-string queue setting (strict config)', function (string $key, mixed $value): void {
+it('reads a blank tuning setting as its default (strict config)', function (): void {
+    foreach (['media.variant.quality', 'media.variant.background', 'media.remote.timeout', 'media.drafts.ttl',
+        'media.temporary_url_default_lifetime', 'media.stream.route_prefix', 'media.image_driver', 'media.checksum_algorithm'] as $key) {
+        config()->set($key, '');
+    }
+
+    expect(MediaConfig::variantQuality())->toBe(75)
+        ->and(MediaConfig::variantBackground())->toBe('#ffffff')
+        ->and(MediaConfig::remoteTimeout())->toBe(30)
+        ->and(MediaConfig::draftTtl())->toBe(1440)
+        ->and(MediaConfig::temporaryUrlLifetime())->toBe(5)
+        ->and(MediaConfig::streamRoutePrefix())->toBe('media')
+        ->and(MediaConfig::imageDriver())->toBe('imagick')
+        ->and(MediaConfig::checksumAlgorithm())->toBe(ChecksumAlgorithm::Sha256);
+});
+
+it('refuses a non-string queue setting (strict config)', function (string $key, mixed $value): void {
     Bus::fake();
     config()->set($key, $value);
 
@@ -76,7 +127,7 @@ it('refuses a blank or non-string queue setting (strict config)', function (stri
 
     Bus::assertNotDispatched(GenerateVariantsJob::class);
 })->with([
-    'connection blank' => ['media.queue_connection', ''],
+    'connection int' => ['media.queue_connection', 1],
     'queue array' => ['media.queue_name', ['media']],
 ]);
 
@@ -91,8 +142,8 @@ it('refuses a junk or out-of-range variant quality (strict config)', function (m
     'too high' => [101, 'Configuration value [media.variant.quality] must be between 1 and 100, [101] given.'],
 ]);
 
-it('refuses a blank variant background (strict config)', function (): void {
-    config()->set('media.variant.background', '');
+it('refuses a non-string variant background (strict config)', function (): void {
+    config()->set('media.variant.background', 0xFFFFFF);
 
     expect(fn () => (new Variant('thumb'))->width(50)->resolve(new GdDriver, 'png'))
         ->toThrow(InvalidConfigurationException::class, 'media.variant.background');
@@ -129,11 +180,18 @@ it('refuses remote headers that are not a string map (strict config)', function 
         ->toThrow(InvalidConfigurationException::class, 'media.remote.headers');
 })->with(['a string' => ['X-Token: 1'], 'a list' => [['X-Token: 1']], 'a non-string value' => [['X-Token' => ['1']]]]);
 
-it('refuses a blank checksum algorithm instead of reading it as sha256 (strict config)', function (): void {
-    config()->set('media.checksum_algorithm', '');
+it('refuses a checksum algorithm typo instead of reading it as sha256 (strict config)', function (): void {
+    config()->set('media.checksum_algorithm', 'sha265');
 
     expect(fn () => MediaLibrary::add(STRICT_PIXEL)->toBucket('brand'))
         ->toThrow(InvalidConfigurationException::class, 'media.checksum_algorithm');
+});
+
+it('reads a blank checksum algorithm as not set, so sha256 applies (strict config)', function (): void {
+    config()->set('media.checksum_algorithm', '');
+
+    expect(MediaLibrary::add(STRICT_PIXEL)->toBucket('brand')->checksum)
+        ->toBe(hash_file('sha256', STRICT_PIXEL));
 });
 
 it('refuses a junk or non-positive draft TTL (strict config)', function (mixed $value): void {
@@ -151,7 +209,7 @@ it('reads an integer string draft TTL (strict config)', function (): void {
     expect(MediaLibrary::draft(STRICT_PIXEL)->toBucket('default')->draft_expires_at?->toDateTimeString())->toBe('2026-06-18 13:00:00');
 });
 
-it('refuses a blank CDN base url or a junk disk list (strict config)', function (string $key, mixed $value): void {
+it('refuses a non-string CDN base url or a junk disk list (strict config)', function (string $key, mixed $value): void {
     config()->set('media.cdn.base_url', 'https://cdn.example.com');
     config()->set($key, $value);
 
@@ -160,18 +218,17 @@ it('refuses a blank CDN base url or a junk disk list (strict config)', function 
     expect(fn () => (new CdnUrlGenerator(app(DefaultUrlGenerator::class)))->getUrl($media))
         ->toThrow(InvalidConfigurationException::class, $key);
 })->with([
-    'base url blank' => ['media.cdn.base_url', ''],
     'base url array' => ['media.cdn.base_url', ['https://cdn.example.com']],
     'disks string' => ['media.cdn.disks', 'public'],
     'disks junk entry' => ['media.cdn.disks', ['public', 3]],
 ]);
 
-it('refuses a blank stream route prefix or junk middleware list (strict config)', function (string $key, mixed $value): void {
+it('refuses a non-string stream route prefix or junk middleware list (strict config)', function (string $key, mixed $value): void {
     config()->set($key, $value);
 
     expect(fn () => require __DIR__.'/../../routes/media.php')->toThrow(InvalidConfigurationException::class, $key);
 })->with([
-    'prefix blank' => ['media.stream.route_prefix', ''],
+    'prefix array' => ['media.stream.route_prefix', ['media']],
     'middleware string' => ['media.stream.middleware', 'web'],
     'middleware junk entry' => ['media.stream.middleware', ['web', '']],
 ]);
@@ -180,7 +237,7 @@ it('flags a broken setting in about instead of rendering a fallback (strict conf
     config()->set('media.image_driver', 'GD');
     config()->set('media.max_file_size', '256MB');
     config()->set('media.drafts.ttl', 'a day');
-    config()->set('media.table_name', '');
+    config()->set('media.table_name', 1);
 
     Artisan::call('about', ['--only' => 'media']);
     $output = Artisan::output();

@@ -11,10 +11,11 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
 /**
  * Strict readers for the package's non-boolean settings.
  *
- * A default applies only when the key is absent (null). Anything present but unusable — a
- * `privat` visibility (which Media::isPublic() would have read as PUBLIC), a `GD` driver, a
- * `thirty` timeout that `(int)` made 0 (no timeout), a blank disk or table name — throws
- * {@see InvalidConfigurationException} naming the key, instead of quietly falling back.
+ * A setting that is not set — absent, null, or blank like a host's `KEY=` — takes its default
+ * (or, for an optional setting such as the variants disk or CDN URL, none). Anything else
+ * unusable — a `privat` visibility (which Media::isPublic() would have read as PUBLIC), a `GD`
+ * driver, a `thirty` timeout that `(int)` made 0 (no timeout), a non-string disk or table name —
+ * throws {@see InvalidConfigurationException} naming the key, instead of quietly falling back.
  *
  * @internal
  */
@@ -90,7 +91,7 @@ final class MediaConfig
      */
     public static function streamMiddleware(): array
     {
-        return self::stringList('media.stream.middleware', config('media.stream.middleware') ?? ['web']);
+        return self::stringList('media.stream.middleware', self::unlessBlank(config('media.stream.middleware')) ?? ['web']);
     }
 
     /** `public` or `private`. */
@@ -106,7 +107,7 @@ final class MediaConfig
     /** The package-level size cap in bytes (at least 1), or null when there is none. */
     public static function maxFileSize(): ?int
     {
-        return config('media.max_file_size') === null
+        return self::unlessBlank(config('media.max_file_size')) === null
             ? null
             : Config::integer('media.max_file_size', 1, 1);
     }
@@ -119,7 +120,7 @@ final class MediaConfig
     public static function remoteHeaders(): array
     {
         $key = 'media.remote.headers';
-        $headers = config($key) ?? [];
+        $headers = self::unlessBlank(config($key)) ?? [];
 
         if (! is_array($headers)) {
             throw self::invalid($key, 'a map of header name => value', $headers);
@@ -157,7 +158,7 @@ final class MediaConfig
     public static function responsiveWidths(): array
     {
         $key = 'media.responsive.widths';
-        $widths = config($key);
+        $widths = self::unlessBlank(config($key));
 
         if ($widths === null) {
             return self::DEFAULT_WIDTHS;
@@ -196,7 +197,7 @@ final class MediaConfig
      */
     public static function cdnDisks(): array
     {
-        return self::stringList('media.cdn.disks', config('media.cdn.disks') ?? []);
+        return self::stringList('media.cdn.disks', self::unlessBlank(config('media.cdn.disks')) ?? []);
     }
 
     private static function string(string $key, string $default): string
@@ -206,17 +207,26 @@ final class MediaConfig
 
     private static function optionalString(string $key): ?string
     {
-        $value = config($key);
+        $value = self::unlessBlank(config($key));
 
         if ($value === null) {
             return null;
         }
 
-        if (! is_string($value) || trim($value) === '') {
+        if (! is_string($value)) {
             throw InvalidConfigurationException::notAString($key, $value);
         }
 
         return $value;
+    }
+
+    /**
+     * A raw config value, with a blank string (`''` or whitespace — a host's `KEY=`) read as
+     * null: not set, exactly like an absent key.
+     */
+    private static function unlessBlank(mixed $value): mixed
+    {
+        return is_string($value) && trim($value) === '' ? null : $value;
     }
 
     /**

@@ -70,10 +70,10 @@ it('refuses an image driver typo instead of using imagick (strict config)', func
         InvalidConfigurationException::class,
         'Configuration value [media.image_driver] must be one of [imagick, gd]',
     );
-})->with(['typo' => ['GD'], 'blank' => [''], 'unknown' => ['vips']]);
+})->with(['typo' => ['GD'], 'unknown' => ['vips']]);
 
-it('uses imagick when the driver is absent (strict config)', function (): void {
-    config()->set('media.image_driver', null);
+it('uses imagick when the driver is absent or blank (strict config)', function (?string $value): void {
+    config()->set('media.image_driver', $value);
 
     expect(ImageDriverFactory::make(hasExtension: fakeExtensions('imagick')))->toBeInstanceOf(ImagickDriver::class);
-});
+})->with(['absent' => [null], 'blank' => [''], 'whitespace' => [' ']]);
