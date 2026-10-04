@@ -9,7 +9,7 @@
         "storage",
         "uploads"
     ],
-    "homepage": "https://github.com/roundly-consulting/media-library-for-laravel",
+    "homepage": "https://roundly-consulting.com/open-source/docs/media-library-for-laravel",
     "license": "MIT",
     "authors": [
         {
@@ -18,6 +18,9 @@
             "role": "Developer"
         }
     ],
+    "support": {
+        "docs": "https://roundly-consulting.com/open-source/docs/media-library-for-laravel"
+    },
     "require": {
         "php": "^8.4",
         "ext-fileinfo": "*",
