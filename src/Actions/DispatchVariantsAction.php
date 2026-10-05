@@ -47,8 +47,10 @@ final class DispatchVariantsAction
             }
         }
 
+        // The media is already stored (a single-file bucket's previous one already gone), so a
+        // variant that fails here is reported and skipped rather than failing the whole call.
         if ($sync !== []) {
-            $this->generateVariants->execute($media, $sync);
+            $this->generateVariants->execute($media, $sync, reportFailures: true);
         }
 
         if ($queued !== []) {

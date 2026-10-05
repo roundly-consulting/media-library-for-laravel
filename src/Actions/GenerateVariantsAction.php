@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
@@ -17,6 +18,7 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
+use Throwable;
 
 /**
  * Generates image derivatives ("variants") for a {@see Media} through the active
@@ -36,9 +38,13 @@ final class GenerateVariantsAction
     ) {}
 
     /**
+     * With `$reportFailures` a variant that fails to render — an image the driver cannot decode,
+     * a refused write — is reported to the exception handler and skipped: the others still render, and the
+     * media that was just stored stays as it is. Without it the first failure throws.
+     *
      * @param  list<Variant>  $variants
      */
-    public function execute(Media $media, array $variants): Media
+    public function execute(Media $media, array $variants, bool $reportFailures = false): Media
     {
         if ($variants === []) {
             return $media;
@@ -49,8 +55,23 @@ final class GenerateVariantsAction
         $generated = [];
 
         foreach ($variants as $variant) {
-            $this->generateOne($media, $variant, $driver);
+            try {
+                $this->generateOne($media, $variant, $driver);
+            } catch (Throwable $exception) {
+                if (! $reportFailures) {
+                    throw $exception;
+                }
+
+                app(ExceptionHandler::class)->report($exception);
+
+                continue;
+            }
+
             $generated[] = $variant->name;
+        }
+
+        if ($generated === []) {
+            return $media;
         }
 
         $media->save();

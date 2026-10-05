@@ -32,6 +32,17 @@ final class EdgeCaseUser extends Model implements HasMedia
     {
         $this->addMediaBucket('single')->useDisk('public')->singleFile();
 
+        // Two variants rendered on the spot; the second one's disk refuses it.
+        $this->addMediaBucket('half-broken')->useDisk('public')->registerVariants(function (VariantRegistrar $v): void {
+            $v->add('thumb')->width(8)->format('png')->nonQueued();
+            $v->add('broken')->width(8)->format('png')->storeOnDisk('flaky')->nonQueued();
+        });
+
+        // Single-file, with a variant rendered on the spot.
+        $this->addMediaBucket('single-thumb')->useDisk('public')->singleFile()->registerVariants(function (VariantRegistrar $v): void {
+            $v->add('thumb')->width(8)->format('png')->nonQueued();
+        });
+
         // Every write to this disk fails, reported as `false`.
         $this->addMediaBucket('unwritable')->useDisk('flaky');
 
