@@ -64,6 +64,11 @@ final class AddMediaAction
 
     private function add(PendingFileAddState $state): Media
     {
+        // A draft only borrows its owner's bucket definition; everything else is stored against it.
+        if (! $state->draft) {
+            $this->guard->ensureSavedOwner($state->owner);
+        }
+
         $bucket = $this->guard->bucketFor($state->owner, $state->bucket);
 
         // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.

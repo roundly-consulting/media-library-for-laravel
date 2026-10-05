@@ -69,6 +69,7 @@ final class MoveMediaAction
         $targetBucket = $rehomed ? $this->guard->bucketFor($toModel, $bucket) : null;
 
         if ($rehomed) {
+            $this->guard->ensureSavedOwner($toModel);
             $this->guard->ensureAcceptsMedia($targetBucket, $bucket, $media);
         }
 

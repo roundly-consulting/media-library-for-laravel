@@ -37,6 +37,8 @@ final class AttachMediaAction
      */
     public function execute(Media $source, HasMedia|Model|null $toModel = null, string $bucket = 'default'): Media
     {
+        $this->guard->ensureSavedOwner($toModel);
+
         $targetBucket = $this->guard->bucketFor($toModel, $bucket);
         $this->guard->ensureAcceptsMedia($targetBucket, $bucket, $source);
 

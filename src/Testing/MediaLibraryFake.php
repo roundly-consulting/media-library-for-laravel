@@ -77,6 +77,11 @@ final class MediaLibraryFake extends MediaLibraryManager
     private function recordStore(PendingFileAddState $state): Media
     {
         $guard = $this->guard();
+
+        if (! $state->draft) {
+            $guard->ensureSavedOwner($state->owner);
+        }
+
         $bucket = $guard->bucketFor($state->owner, $state->bucket);
         $dimensions = str_starts_with((string) $state->file->mimeType, 'image/')
             ? ExifOrientation::displayDimensions($state->file->path)
@@ -116,6 +121,7 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function attach(Media $media, ?Model $to = null, string $bucket = 'default'): Media
     {
+        $this->guard()->ensureSavedOwner($to);
         $this->ensureAccepted($media, $to, $bucket);
 
         $attached = $this->replicaOf($media, $to, $bucket, $media->disk);
@@ -127,6 +133,8 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function bindDraft(string $token, Model $to, string $bucket = 'default'): Media
     {
+        $this->guard()->ensureSavedOwner($to);
+
         $draft = $this->recordedDraft($token)
             ?? MediaModel::query()->drafts()->where('draft_token', $token)->first()
             ?? throw DraftMediaNotFound::forToken($token);
@@ -163,6 +171,7 @@ final class MediaLibraryFake extends MediaLibraryManager
         $this->disks()->ensureDiskExists($disk ?? $media->disk);
 
         if ($media->bucket_name !== $bucket || $media->model_type !== $to?->getMorphClass() || (string) $media->model_id !== (string) $to?->getKey()) {
+            $this->guard()->ensureSavedOwner($to);
             $this->ensureAccepted($media, $to, $bucket);
         }
 
@@ -198,6 +207,7 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function copy(Media $media, ?Model $to = null, string $bucket = 'default', ?string $disk = null): Media
     {
+        $this->guard()->ensureSavedOwner($to);
         $this->disks()->ensureDiskExists($disk ?? $media->disk);
         $this->ensureAccepted($media, $to, $bucket);
 

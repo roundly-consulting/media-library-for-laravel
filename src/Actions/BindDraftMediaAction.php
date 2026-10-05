@@ -46,6 +46,8 @@ final class BindDraftMediaAction
 
     public function execute(Model $owner, string $token, string $bucket = 'default'): Media
     {
+        $this->guard->ensureSavedOwner($owner);
+
         $media = $this->findDraft($token);
 
         $this->guardNotExpired($media, $token);

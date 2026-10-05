@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
+use RoundlyConsulting\MediaLibrary\Exceptions\MediaOwnerNotSaved;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
@@ -27,6 +28,18 @@ final class BucketGuard
     public function __construct(
         private readonly DeleteMediaAction $deleteMedia,
     ) {}
+
+    /**
+     * Media only ever belongs to a saved, keyed model.
+     *
+     * @throws MediaOwnerNotSaved
+     */
+    public function ensureSavedOwner(HasMedia|Model|null $owner): void
+    {
+        if ($owner instanceof Model && (! $owner->exists || $owner->getKey() === null)) {
+            throw MediaOwnerNotSaved::forModel($owner);
+        }
+    }
 
     /** The bucket `$owner` declares under `$name`; null for global media or an undeclared bucket. */
     public function bucketFor(HasMedia|Model|null $owner, string $name): ?MediaBucket

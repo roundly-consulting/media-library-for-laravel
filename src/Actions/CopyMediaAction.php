@@ -51,6 +51,8 @@ final class CopyMediaAction
         string $bucket = 'default',
         ?string $disk = null,
     ): Media {
+        $this->guard->ensureSavedOwner($toModel);
+
         $targetDisk = $disk ?? $media->disk;
         $this->diskResolver->ensureDiskExists($targetDisk);
 

@@ -143,6 +143,14 @@ class Media extends Model
      */
     public function scopeForModel(Builder $query, Model $model): void
     {
+        // A keyless (unsaved) model owns nothing: `where model_id = null` would compile to
+        // `IS NULL` and match every other keyless owner's rows.
+        if ($model->getKey() === null) {
+            $query->whereKey([]);
+
+            return;
+        }
+
         $query->where('model_type', $model->getMorphClass())
             ->where('model_id', $model->getKey());
     }
