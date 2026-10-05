@@ -90,7 +90,7 @@ final class MediaLibraryFake extends MediaLibraryManager
         $media = MediaModel::new();
         $media->uuid = (string) Str::uuid();
         $media->bucket_name = $state->bucket;
-        $media->name = $state->name ?? $state->file->name;
+        $media->name = FileNames::displayName($state->name ?? $state->file->name);
         $media->file_name = $this->fileName($state);
         $media->mime_type = $state->file->mimeType;
         $media->extension = FileNames::extensionOf($media->file_name);

@@ -39,6 +39,15 @@ final class FileNames
     /** Longest stored name, in bytes — the `file_name` column is a 255-character string. */
     private const MAX_LENGTH = 200;
 
+    /** Longest display name, in characters: the `name` column is a 255-character string. */
+    private const MAX_DISPLAY_LENGTH = 255;
+
+    /** A display name cut to what the `name` column holds. */
+    public static function displayName(string $name): string
+    {
+        return mb_substr($name, 0, self::MAX_DISPLAY_LENGTH);
+    }
+
     /** A single, separator-free path segment, or `file` when nothing usable is left. */
     public static function sanitize(string $name): string
     {

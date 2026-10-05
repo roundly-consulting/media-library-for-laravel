@@ -232,7 +232,7 @@ final class FileAdderFactory
     {
         $fileName = basename(str_replace('\\', '/', $fileName));
 
-        return pathinfo($fileName, PATHINFO_FILENAME) ?: $fileName;
+        return FileNames::displayName(pathinfo($fileName, PATHINFO_FILENAME) ?: $fileName);
     }
 
     /** The package-level size cap (`media.max_file_size`), or null when there is none. */

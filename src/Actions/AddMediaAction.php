@@ -98,7 +98,16 @@ final class AddMediaAction
 
         $shared = $this->storeOriginal($media, $state, $disk, $visibility, $checksum);
 
-        $media->save();
+        try {
+            $media->save();
+        } catch (Throwable $exception) {
+            // No row will ever point at the file just written for it.
+            if (! $shared) {
+                Storage::disk($disk)->delete($media->getPath());
+            }
+
+            throw $exception;
+        }
 
         // The shared file can vanish between the check and the save (its last other referrer
         // force-deleted meanwhile): then this row gets its own copy after all.
@@ -163,7 +172,7 @@ final class AddMediaAction
 
         $media->uuid = (string) Str::uuid();
         $media->bucket_name = $state->bucket;
-        $media->name = $state->name ?? $state->file->name;
+        $media->name = FileNames::displayName($state->name ?? $state->file->name);
         $media->file_name = $this->fileName($state);
         $media->mime_type = $state->file->mimeType;
         $media->extension = FileNames::extensionOf($media->file_name);
