@@ -7,11 +7,14 @@ namespace RoundlyConsulting\MediaLibrary\Support;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileRejected;
+use Throwable;
 
 /**
  * Fetches the file behind an `addFromUrl()` URL through Laravel's HTTP client — so `Http::fake()`
- * still stands in for it — without letting the URL reach the host's own network.
+ * still stands in for it — without letting the URL reach the host's own network, and without
+ * holding the body in memory: it is streamed to a local file, cut off at the size cap.
  *
  * With `media.remote.block_private_networks` on (the default), every hop is vetted before it is
  * requested: the host is resolved once, every address it resolves to must be public (see
@@ -29,13 +32,19 @@ final class RemoteFileFetcher
         private readonly HostResolver $resolver,
     ) {}
 
-    /** @throws RemoteFileRejected when a hop is not http(s), does not resolve, or is private */
-    public function get(string $url): Response
+    /**
+     * Download `$url` into the local file at `$path`, streamed straight to disk. With `$maxBytes`
+     * the transfer is cut off as soon as the body passes it, whatever the server declared.
+     *
+     * @throws RemoteFileRejected when a hop is not http(s), does not resolve, or is private, or
+     *                            when the body passes `$maxBytes`
+     */
+    public function download(string $url, string $path, ?int $maxBytes): Response
     {
         $this->ensureHttp($url);
 
         if (! MediaConfig::blockPrivateNetworks()) {
-            return $this->client()->get($url);
+            return $this->send($this->client(), $url, $path, $maxBytes);
         }
 
         $allowlist = MediaConfig::allowedPrivateHosts();
@@ -49,7 +58,7 @@ final class RemoteFileFetcher
                 $request->withOptions(['curl' => [CURLOPT_RESOLVE => [$pin]]]);
             }
 
-            $response = $request->get($url);
+            $response = $this->send($request, $url, $path, $maxBytes);
             $location = $response->redirect() ? trim($response->header('Location')) : '';
 
             if ($location === '') {
@@ -62,6 +71,86 @@ final class RemoteFileFetcher
 
             $url = self::resolveReference($url, $location);
             $this->ensureHttp($url);
+        }
+    }
+
+    /** One request, its body written to `$path` (truncated first) through the size cap. */
+    private function send(PendingRequest $request, string $url, string $path, ?int $maxBytes): Response
+    {
+        $limit = $maxBytes === null ? null : new SizeLimit($maxBytes);
+        $sink = $limit === null ? @fopen($path, 'w+b') : CappedFileStream::open($path, $limit);
+
+        if ($sink === false) {
+            throw FileDoesNotExist::forPath('temporary file');
+        }
+
+        try {
+            $response = $request->withOptions(['sink' => $sink])->get($url);
+            $streamed = $this->streamedInto($response, $sink);
+        } catch (Throwable $exception) {
+            // Over the cap, the short write is what aborted the transfer.
+            if ($limit !== null && $limit->exceeded) {
+                throw RemoteFileRejected::tooLarge($url, $limit->maxBytes);
+            }
+
+            throw $exception;
+        } finally {
+            if (is_resource($sink)) {
+                fclose($sink);
+            }
+        }
+
+        if ($limit !== null && $limit->exceeded) {
+            throw RemoteFileRejected::tooLarge($url, $limit->maxBytes);
+        }
+
+        if (! $streamed) {
+            $this->writeBody($response, $url, $path, $maxBytes);
+        }
+
+        return $response;
+    }
+
+    /**
+     * Whether the client streamed the body into `$sink`. It does not under `Http::fake()`, which
+     * copies a stub's body over without rewinding it — so a stub answered twice arrives empty.
+     *
+     * @param  resource  $sink
+     */
+    private function streamedInto(Response $response, $sink): bool
+    {
+        $uri = stream_get_meta_data($sink)['uri'] ?? null;
+
+        return $uri !== null && $response->toPsrResponse()->getBody()->getMetadata('uri') === $uri;
+    }
+
+    /** Write a response's own body to `$path` through the cap — for one not streamed there. */
+    private function writeBody(Response $response, string $url, string $path, ?int $maxBytes): void
+    {
+        $body = $response->toPsrResponse()->getBody();
+        $limit = $maxBytes === null ? null : new SizeLimit($maxBytes);
+        $target = $limit === null ? @fopen($path, 'w+b') : CappedFileStream::open($path, $limit);
+
+        if ($target === false) {
+            throw FileDoesNotExist::forPath('temporary file');
+        }
+
+        try {
+            if ($body->isSeekable()) {
+                $body->rewind();
+            }
+
+            while (! $body->eof() && ($chunk = $body->read(1048576)) !== '') {
+                if (fwrite($target, $chunk) !== strlen($chunk)) {
+                    break;
+                }
+            }
+        } finally {
+            fclose($target);
+        }
+
+        if ($limit !== null && $limit->exceeded) {
+            throw RemoteFileRejected::tooLarge($url, $limit->maxBytes);
         }
     }
 

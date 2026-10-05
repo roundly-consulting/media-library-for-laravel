@@ -15,6 +15,7 @@ use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\RemoteFileFetcher;
+use Throwable;
 
 /**
  * Normalizes every supported media source (upload, path, URL, disk file, raw string,
@@ -40,9 +41,17 @@ final class FileAdderFactory
 
             // Copy the upload's bytes into our own temp file immediately: the UploadedFile
             // (especially fakes) may be cleaned up before the deferred terminal add runs.
-            $contents = file_get_contents($path);
+            $source = @fopen($path, 'rb');
 
-            return $this->fromTempContents($contents === false ? '' : $contents, $file->getClientOriginalName());
+            if ($source === false) {
+                throw FileDoesNotExist::forPath($file->getClientOriginalName());
+            }
+
+            try {
+                return $this->fromTempStream($source, $file->getClientOriginalName());
+            } finally {
+                fclose($source);
+            }
         }
 
         return $this->fromPath($file);
@@ -67,28 +76,33 @@ final class FileAdderFactory
      */
     public function fromUrl(string $url): AddedFile
     {
-        $response = app(RemoteFileFetcher::class)->get($url);
-
-        if (! $response->successful()) {
-            throw FileDoesNotExist::forPath($url);
-        }
-
+        $path = $this->temporaryPath();
         $limit = $this->maxFileSize();
-        $declared = $response->header('Content-Length');
 
-        if ($limit !== null && is_numeric($declared) && (int) $declared > $limit) {
-            throw RemoteFileRejected::tooLarge($url, $limit);
+        try {
+            // Streamed to the temp file and cut off at the cap — never held in memory whole.
+            $response = app(RemoteFileFetcher::class)->download($url, $path, $limit);
+
+            if (! $response->successful()) {
+                throw FileDoesNotExist::forPath($url);
+            }
+
+            $declared = $response->header('Content-Length');
+
+            if ($limit !== null && is_numeric($declared) && (int) $declared > $limit) {
+                throw RemoteFileRejected::tooLarge($url, $limit);
+            }
+        } catch (Throwable $exception) {
+            @unlink($path);
+
+            throw $exception;
         }
 
-        $body = $response->body();
-
-        if ($limit !== null && strlen($body) > $limit) {
-            throw RemoteFileRejected::tooLarge($url, $limit);
-        }
-
+        clearstatcache(true, $path);
+        $size = filesize($path);
         $fileName = basename((string) parse_url($url, PHP_URL_PATH)) ?: Str::random(40);
 
-        return $this->fromTempContents($body, $fileName);
+        return $this->describe($path, $fileName, $size === false ? 0 : $size, isTemporary: true);
     }
 
     public function fromDisk(string $path, ?string $disk = null): AddedFile
@@ -96,11 +110,17 @@ final class FileAdderFactory
         $disk ??= $this->configDisk();
         $storage = Storage::disk($disk);
 
-        if (! $storage->exists($path)) {
+        $source = $storage->exists($path) ? $storage->readStream($path) : null;
+
+        if (! is_resource($source)) {
             throw FileDoesNotExist::onDisk($path, $disk);
         }
 
-        return $this->fromTempContents($storage->get($path) ?? '', basename($path));
+        try {
+            return $this->fromTempStream($source, basename($path));
+        } finally {
+            fclose($source);
+        }
     }
 
     public function fromString(string $contents): AddedFile
@@ -128,16 +148,44 @@ final class FileAdderFactory
      */
     public function fromStream($stream): AddedFile
     {
-        $contents = stream_get_contents($stream);
-
-        if ($contents === false) {
-            throw FileDoesNotExist::forPath('stream');
-        }
-
-        return $this->fromTempContents($contents, Str::random(40));
+        return $this->fromTempStream($stream, Str::random(40));
     }
 
     private function fromTempContents(string $contents, string $fileName): AddedFile
+    {
+        $tempPath = $this->temporaryPath();
+
+        file_put_contents($tempPath, $contents);
+
+        return $this->describe($tempPath, $fileName, strlen($contents), isTemporary: true);
+    }
+
+    /**
+     * Copy a stream into the package's own temp file, chunk by chunk — a large upload or remote
+     * file never has to fit in memory.
+     *
+     * @param  resource  $source
+     */
+    private function fromTempStream($source, string $fileName): AddedFile
+    {
+        $tempPath = $this->temporaryPath();
+        $target = fopen($tempPath, 'wb');
+        $copied = $target === false ? false : stream_copy_to_stream($source, $target);
+
+        if ($target !== false) {
+            fclose($target);
+        }
+
+        if ($copied === false) {
+            @unlink($tempPath);
+
+            throw FileDoesNotExist::forPath('stream');
+        }
+
+        return $this->describe($tempPath, $fileName, $copied, isTemporary: true);
+    }
+
+    private function temporaryPath(): string
     {
         $tempPath = tempnam(sys_get_temp_dir(), 'media_');
 
@@ -145,9 +193,7 @@ final class FileAdderFactory
             throw FileDoesNotExist::forPath('temporary file');
         }
 
-        file_put_contents($tempPath, $contents);
-
-        return $this->describe($tempPath, $fileName, strlen($contents), isTemporary: true);
+        return $tempPath;
     }
 
     /** Sniff the bytes at `$path` and derive a safe stored name from the untrusted `$fileName`. */
