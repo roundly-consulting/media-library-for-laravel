@@ -18,6 +18,7 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
+use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use RoundlyConsulting\PackageToolkit\Support\Config;
@@ -29,8 +30,10 @@ use Throwable;
  * and its variants are regenerated. The new file must satisfy the owner's bucket (mime allowlist,
  * size cap, dimensions), exactly like an add.
  *
- * The URL stays the same whenever the old original was this row's alone: the new bytes overwrite
- * it in place. An original other rows still point at (a deduplicated upload, an `attach()`, a
+ * A replacement of another type renames the stored file to match it (`landscape.jpg` replaced
+ * with a PNG becomes `landscape.png`, at a new path), so the URL changes. Of the same type, the URL
+ * stays the same whenever the old original was this row's alone: the new bytes overwrite it in
+ * place. An original other rows still point at (a deduplicated upload, an `attach()`, a
  * same-disk `copy()`) is NEVER overwritten — that would silently change their media — so the new
  * bytes go to a free path of this row's own and only this row's URL changes. New bytes identical
  * to an already-stored file reuse that file (`media.deduplicate`). The old original is removed
@@ -79,6 +82,7 @@ final class ReplaceMediaAction
         $oldPath = $media->getPath();
         $oldDisk = $media->disk;
         $oldShared = $this->files->originalIsShared($media);
+        $oldFileName = $media->file_name;
 
         $this->files->deleteVariants($media);
 
@@ -86,7 +90,7 @@ final class ReplaceMediaAction
 
         $this->refreshMetadata($media, $source, $newChecksum, $dimensions);
 
-        $this->writeOriginal($media, $source, $newChecksum, $oldPath, $oldShared);
+        $this->writeOriginal($media, $source, $newChecksum, $oldPath, $oldShared || $media->file_name !== $oldFileName);
 
         $media->generated_variants = [];
         $media->save();
@@ -106,11 +110,11 @@ final class ReplaceMediaAction
     private function refreshMetadata(Media $media, AddedFile $source, ?string $checksum, ?array $dimensions): void
     {
         $media->mime_type = $source->mimeType;
-        $media->extension = $source->extension;
+        $media->file_name = $this->renamedFor($media->file_name, $source->extension);
+        $media->extension = FileNames::extensionOf($media->file_name);
         $media->size = $source->size;
         $media->checksum = $checksum;
-        // file_name stays stable so the public URL doesn't change; placeholders are recomputed
-        // (or left null for non-images) below.
+        // Placeholders are recomputed (or left null for non-images) below.
         $media->width = $dimensions[0] ?? null;
         $media->height = $dimensions[1] ?? null;
         $media->placeholders = null;
@@ -132,10 +136,28 @@ final class ReplaceMediaAction
     }
 
     /**
-     * Write the new bytes: onto an identical existing file when dedup finds one, else in place when
-     * the old original was this row's alone, else onto a free path of this row's own.
+     * The stored name, its extension following the replacement's: the same name when the type
+     * stays (`PHOTO.JPG` replaced with another JPEG), else the same stem with the new extension.
      */
-    private function writeOriginal(Media $media, AddedFile $source, ?string $checksum, string $oldPath, bool $oldShared): void
+    private function renamedFor(string $fileName, ?string $extension): string
+    {
+        $current = FileNames::extensionOf($fileName);
+
+        if ($extension === null || $current === $extension) {
+            return $fileName;
+        }
+
+        $stem = $current === null ? $fileName : substr($fileName, 0, -(strlen($current) + 1));
+
+        return FileNames::sanitize($stem.'.'.$extension);
+    }
+
+    /**
+     * Write the new bytes: onto an identical existing file when dedup finds one, else in place when
+     * the old original was this row's alone and keeps its name, else onto a free path of this
+     * row's own.
+     */
+    private function writeOriginal(Media $media, AddedFile $source, ?string $checksum, string $oldPath, bool $elsewhere): void
     {
         $canonical = $this->dedupCanonical($media, $checksum);
 
@@ -146,7 +168,7 @@ final class ReplaceMediaAction
             return;
         }
 
-        $target = $oldShared ? $this->files->freePath($media, $media->disk) : $oldPath;
+        $target = $elsewhere ? $this->files->freePath($media, $media->disk) : $oldPath;
         $media->path = $target;
 
         $stream = @fopen($source->path, 'rb');

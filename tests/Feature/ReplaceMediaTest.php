@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced;
+use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
 
 function replaceUser(string $name = 'Jane'): TestUser
@@ -160,4 +161,41 @@ it('reuses an existing canonical file when replacing with already-stored bytes',
     // Deleting the canonical row keeps the shared file alive for the replaced target.
     app(DeleteMediaAction::class)->execute($canonical);
     Storage::disk('public')->assertExists($target->getPath());
+});
+
+/*
+ * Owner decision (chat review C-23): the stored name follows the bytes. Replacing a JPEG with a
+ * PNG used to keep `landscape.jpg` — PNG bytes behind a .jpg name, while the `extension` column
+ * said png. The file is renamed to match, so the URL changes; a replacement of the same type
+ * still overwrites in place and keeps its URL.
+ */
+it('renames the stored file when the replacement is of another type', function (): void {
+    $user = replaceUser();
+    $media = $user->addMedia(__DIR__.'/../files/landscape.jpg')->toMediaBucket('gallery');
+    $oldPath = $media->getPath();
+    $oldUrl = $media->getUrl();
+
+    $media->replace(__DIR__.'/../files/pixel.png');
+
+    $fresh = Media::query()->findOrFail($media->id);
+
+    expect($fresh->file_name)->toBe('landscape.png')
+        ->and($fresh->extension)->toBe('png')
+        ->and($fresh->mime_type)->toBe('image/png')
+        ->and($fresh->getPath())->toEndWith('/landscape.png')
+        ->and($fresh->getUrl())->not->toBe($oldUrl);
+
+    expect(Storage::disk('public')->get($fresh->getPath()))->toBe((string) file_get_contents(__DIR__.'/../files/pixel.png'));
+    Storage::disk('public')->assertMissing($oldPath);
+});
+
+it('keeps the stored name of an upper-case extension when the type stays the same', function (): void {
+    $user = replaceUser();
+    $media = $user->addMedia(__DIR__.'/../files/landscape.jpg')->usingFileName('PHOTO.JPG')->toMediaBucket('gallery');
+    $oldPath = $media->getPath();
+
+    $media->replace(__DIR__.'/../files/landscape.jpg');
+
+    expect($media->file_name)->toBe('PHOTO.JPG')
+        ->and($media->getPath())->toBe($oldPath);
 });
