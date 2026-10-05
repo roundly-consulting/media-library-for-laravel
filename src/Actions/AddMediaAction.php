@@ -15,6 +15,8 @@ use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
@@ -92,12 +94,18 @@ final class AddMediaAction
             [$media->width, $media->height] = $dimensions;
         }
 
-        // LQIP placeholders read the local source, which storeOriginal() then discards.
         $this->capturePlaceholders($media, $state);
 
-        $this->storeOriginal($media, $state, $disk, $visibility, $checksum);
+        $shared = $this->storeOriginal($media, $state, $disk, $visibility, $checksum);
 
         $media->save();
+
+        // The shared file can vanish between the check and the save (its last other referrer
+        // force-deleted meanwhile): then this row gets its own copy after all.
+        if ($shared && ! Storage::disk($disk)->exists($media->getPath())) {
+            $this->writeOriginal($media, $state, $disk, $visibility);
+            $media->save();
+        }
 
         if (! $state->draft && $state->owner instanceof Model) {
             $this->guard->enforceSingleFile($bucket, $state->owner, $state->bucket, $media);
@@ -196,6 +204,7 @@ final class AddMediaAction
     /**
      * Store the original's bytes, deduplicating when an identical `(disk, visibility, checksum)`
      * already exists: a deduped row points its `path` at the canonical file and writes nothing.
+     * Returns whether it deduplicated.
      */
     private function storeOriginal(
         Media $media,
@@ -203,43 +212,61 @@ final class AddMediaAction
         string $disk,
         string $visibility,
         ?string $checksum,
-    ): void {
+    ): bool {
         $canonical = $this->dedupCanonical($disk, $visibility, $checksum);
 
         if ($canonical !== null) {
             $this->files->pin($canonical);
             $media->path = $canonical->getPath();
 
-            $this->discardSource($state);
-
-            return;
+            return true;
         }
 
+        $this->writeOriginal($media, $state, $disk, $visibility);
+
+        return false;
+    }
+
+    /**
+     * Write the source to a path of this row's own.
+     *
+     * @throws FileDoesNotExist when the source can no longer be read
+     * @throws FileCannotBeWritten when the disk refuses the write
+     */
+    private function writeOriginal(Media $media, PendingFileAddState $state, string $disk, string $visibility): void
+    {
         $target = $this->files->freePath($media, $disk);
         $media->path = $target;
 
-        $stream = fopen($state->file->path, 'rb');
+        $stream = @fopen($state->file->path, 'rb');
 
         if ($stream === false) {
-            return;
+            throw FileDoesNotExist::forPath($state->file->path);
         }
 
-        Storage::disk($disk)->put($target, $stream, ['visibility' => $visibility]);
-
-        if (is_resource($stream)) {
-            fclose($stream);
+        try {
+            $written = Storage::disk($disk)->put($target, $stream, ['visibility' => $visibility]);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
         }
 
-        $this->discardSource($state);
+        if (! $written) {
+            throw FileCannotBeWritten::toDisk($target, $disk);
+        }
     }
 
+    /** An identical stored original to share — only one whose file is really still there. */
     private function dedupCanonical(string $disk, string $visibility, ?string $checksum): ?Media
     {
         if ($checksum === null || ! Config::boolean('media.deduplicate', true)) {
             return null;
         }
 
-        return $this->checksum->canonicalFor($disk, $visibility, $checksum);
+        $canonical = $this->checksum->canonicalFor($disk, $visibility, $checksum);
+
+        return $canonical !== null && Storage::disk($disk)->exists($canonical->getPath()) ? $canonical : null;
     }
 
     /** Remove the package's own temporary copy of the source; a caller's local path is never touched. */

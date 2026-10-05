@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\EdgeCaseUser;
@@ -155,4 +156,80 @@ it('refuses to bind a draft when the bucket disk refuses the copy visibility, ta
     expect(Storage::disk('sticky')->allFiles())->toBe([])
         ->and(Media::query()->findOrFail($draft->id)->disk)->toBe('public');
     Storage::disk('public')->assertExists($draft->getPath());
+});
+
+it('refuses an add whose write the disk refuses, saving no row', function (): void {
+    expect(fn () => MediaLibrary::add(__DIR__.'/../files/pixel.png')->useDisk('flaky')->toBucket('library'))
+        ->toThrow(FileCannotBeWritten::class);
+
+    expect(Media::query()->count())->toBe(0);
+});
+
+it('refuses an add whose source vanished before it was stored, saving no row', function (): void {
+    $source = sys_get_temp_dir().'/media-vanishing-'.uniqid().'.png';
+    copy(__DIR__.'/../files/pixel.png', $source);
+
+    $pending = MediaLibrary::add($source);
+    unlink($source);
+
+    expect(fn () => $pending->toBucket('library'))->toThrow(FileDoesNotExist::class);
+
+    expect(Media::query()->count())->toBe(0);
+});
+
+it('refuses a replace whose write the disk refuses, leaving the row as it was', function (): void {
+    $media = Media::factory()->create(['disk' => 'flaky', 'mime_type' => 'image/jpeg', 'extension' => 'jpg']);
+
+    expect(fn () => MediaLibrary::replace($media, __DIR__.'/../files/pixel.png'))->toThrow(FileCannotBeWritten::class);
+
+    expect(Media::query()->findOrFail($media->id)->mime_type)->toBe('image/jpeg');
+});
+
+it('refuses to record a variant whose write the disk refuses', function (): void {
+    Bus::fake();
+
+    $owner = EdgeCaseUser::query()->create(['name' => 'Ada']);
+    $media = $owner->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('flaky-thumbs');
+
+    expect(fn () => MediaLibrary::regenerate($media, ['thumb']))->toThrow(FileCannotBeWritten::class);
+
+    expect(Media::query()->findOrFail($media->id)->hasGeneratedVariant('thumb'))->toBeFalse()
+        ->and($media->hasGeneratedVariant('thumb'))->toBeFalse();
+});
+
+it('stores a fresh copy when the identical file it would share has gone missing', function (): void {
+    $first = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('library');
+    Storage::disk('public')->delete($first->getPath());
+
+    $second = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('library');
+
+    expect($second->getPath())->not->toBe($first->getPath());
+    Storage::disk('public')->assertExists($second->getPath());
+});
+
+it('stores a fresh copy when the shared file disappears while the add is saved', function (): void {
+    $first = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('library');
+
+    // A concurrent force-delete of the only other referrer removes the file the add just chose.
+    Media::created(static function (Media $media) use ($first): void {
+        if ($media->id !== $first->id) {
+            Storage::disk('public')->delete($first->getPath());
+        }
+    });
+
+    $second = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('library');
+
+    Storage::disk('public')->assertExists($second->getPath());
+    expect(Media::query()->findOrFail($second->id)->getPath())->toBe($second->getPath());
+});
+
+it('replaces onto a fresh path when the identical file it would share has gone missing', function (): void {
+    $other = MediaLibrary::add(__DIR__.'/../files/sunrise.png')->toBucket('library');
+    $media = MediaLibrary::add(__DIR__.'/../files/pixel.png')->toBucket('library');
+    Storage::disk('public')->delete($other->getPath());
+
+    MediaLibrary::replace($media, __DIR__.'/../files/sunrise.png');
+
+    expect($media->getPath())->not->toBe($other->getPath());
+    Storage::disk('public')->assertExists($media->getPath());
 });

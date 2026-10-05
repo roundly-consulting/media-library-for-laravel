@@ -41,6 +41,11 @@ final class EdgeCaseUser extends Model implements HasMedia
             $v->add('thumb')->width(8)->format('png');
         };
 
+        // A variant written to a disk that refuses it; queued, so only an explicit render tries.
+        $this->addMediaBucket('flaky-thumbs')->useDisk('public')->registerVariants(function (VariantRegistrar $v): void {
+            $v->add('thumb')->width(8)->format('png')->storeOnDisk('flaky')->queued();
+        });
+
         $this->addMediaBucket('thumbs')->useDisk('public')->registerVariants($thumb);
         $this->addMediaBucket('thumbs-private')->useDisk('public')->private()->registerVariants($thumb);
     }

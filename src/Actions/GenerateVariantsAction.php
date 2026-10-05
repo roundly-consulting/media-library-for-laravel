@@ -12,6 +12,7 @@ use RoundlyConsulting\MediaLibrary\DataTransferObjects\GeneratedVariant;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\ManipulationSet;
 use RoundlyConsulting\MediaLibrary\Events\VariantHasBeenGenerated;
 use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenGenerated;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
@@ -74,7 +75,9 @@ final class GenerateVariantsAction
         $fileName = FileNames::sanitize($this->fileNamer->variantFileName($variant->name, $manipulations->format));
         $path = $this->pathGenerator->getPathForVariants($media).$fileName;
 
-        Storage::disk($disk)->put($path, $bytes, ['visibility' => $media->visibility]);
+        if (! Storage::disk($disk)->put($path, $bytes, ['visibility' => $media->visibility])) {
+            throw FileCannotBeWritten::toDisk($path, $disk);
+        }
 
         // A re-render that lands elsewhere (the definition's format or disk changed) must not leave
         // the previous file behind with nothing pointing at it.

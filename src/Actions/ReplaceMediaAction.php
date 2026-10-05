@@ -11,6 +11,8 @@ use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
@@ -147,26 +149,35 @@ final class ReplaceMediaAction
         $target = $oldShared ? $this->files->freePath($media, $media->disk) : $oldPath;
         $media->path = $target;
 
-        $stream = fopen($source->path, 'rb');
+        $stream = @fopen($source->path, 'rb');
 
         if ($stream === false) {
-            return;
+            throw FileDoesNotExist::forPath($source->path);
         }
 
-        Storage::disk($media->disk)->put($target, $stream, ['visibility' => $media->visibility]);
+        try {
+            $written = Storage::disk($media->disk)->put($target, $stream, ['visibility' => $media->visibility]);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
 
-        if (is_resource($stream)) {
-            fclose($stream);
+        if (! $written) {
+            throw FileCannotBeWritten::toDisk($target, $media->disk);
         }
     }
 
+    /** An identical stored original to share — only one whose file is really still there. */
     private function dedupCanonical(Media $media, ?string $checksum): ?Media
     {
         if ($checksum === null || ! Config::boolean('media.deduplicate', true)) {
             return null;
         }
 
-        return $this->checksum->canonicalFor($media->disk, $media->visibility, $checksum, (int) $media->getKey());
+        $canonical = $this->checksum->canonicalFor($media->disk, $media->visibility, $checksum, (int) $media->getKey());
+
+        return $canonical !== null && Storage::disk($media->disk)->exists($canonical->getPath()) ? $canonical : null;
     }
 
     /** Remove the OLD original — unless another row still points at it, or it is the file just written. */
