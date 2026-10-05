@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Support;
 
 use Illuminate\Support\Facades\Storage;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 
 /**
  * Relocates or duplicates a single stored file between disks.
@@ -49,6 +51,24 @@ final class FileTransfer
         fclose($stream);
 
         return $written;
+    }
+
+    /**
+     * Copy a file from one disk/path to another, or throw — {@see FileDoesNotExist} when the
+     * source is missing, {@see FileCannotBeWritten} when the target refuses the write (a disk
+     * configured with `'throw' => false` reports that as a plain `false`).
+     */
+    public function copyOrFail(string $fromDisk, string $fromPath, string $toDisk, string $toPath, string $visibility): void
+    {
+        if ($this->copy($fromDisk, $fromPath, $toDisk, $toPath, $visibility)) {
+            return;
+        }
+
+        if (! Storage::disk($fromDisk)->exists($fromPath)) {
+            throw FileDoesNotExist::onDisk($fromPath, $fromDisk);
+        }
+
+        throw FileCannotBeWritten::toDisk($toPath, $toDisk);
     }
 
     /**

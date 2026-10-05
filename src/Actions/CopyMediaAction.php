@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
@@ -42,6 +43,7 @@ final class CopyMediaAction
 
     /**
      * @throws FileUnacceptableForBucket when the target bucket does not accept the media
+     * @throws FileCannotBeWritten when the target disk refuses the original (no row is created)
      */
     public function execute(
         Media $media,
@@ -113,7 +115,8 @@ final class CopyMediaAction
         } else {
             $copy->path = $this->files->freePath($copy, $copy->disk, $media->getPath());
 
-            $this->fileTransfer->copy($media->disk, $media->getPath(), $copy->disk, $copy->path, $copy->visibility);
+            // Before the row exists: a refused write leaves no copy pointing at a missing file.
+            $this->fileTransfer->copyOrFail($media->disk, $media->getPath(), $copy->disk, $copy->path, $copy->visibility);
         }
 
         $keep = $this->variantNamesDefinedFor($copy);
@@ -125,14 +128,19 @@ final class CopyMediaAction
                 continue;
             }
 
-            // Same file name, same disk — under the copy's own variants directory.
-            $this->fileTransfer->copy(
+            // Same file name, same disk — under the copy's own variants directory. One that fails
+            // to copy is forgotten, so the reconcile renders it afresh instead of recording a gap.
+            $copied = $this->fileTransfer->copy(
                 $variant->disk,
                 $media->getPath($name),
                 $variant->disk,
                 $copy->getPath($name),
                 $copy->visibility,
             );
+
+            if (! $copied) {
+                $copy->forgetGeneratedVariant($name);
+            }
         }
     }
 

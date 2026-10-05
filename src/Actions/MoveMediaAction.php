@@ -6,14 +6,17 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenMoved;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
+use Throwable;
 
 /**
  * Relocates a {@see Media} — across disks, and/or to a different owning model and bucket
@@ -45,6 +48,7 @@ final class MoveMediaAction
 
     /**
      * @throws FileUnacceptableForBucket when re-homing into a bucket that does not accept the media
+     * @throws FileCannotBeWritten when the target disk refuses a write (nothing is changed)
      */
     public function execute(
         Media $media,
@@ -115,22 +119,41 @@ final class MoveMediaAction
      * Copy the original (and the variants that live on its disk) onto the target disk. Returns the
      * original's path there and the source files to delete once the row is committed.
      *
+     * A refused write throws before the row changes or any source is touched, and takes back the
+     * copies already written to the target.
+     *
      * @return array{0: string, 1: list<array{0: string, 1: string}>}
      */
     private function relocateFiles(Media $media, string $sourceDisk, string $targetDisk): array
     {
         $sourcePath = $media->getPath();
         $targetPath = $this->files->freePath($media, $targetDisk, $sourcePath);
+        $written = [];
 
-        $this->fileTransfer->copy($sourceDisk, $sourcePath, $targetDisk, $targetPath, $media->visibility);
+        try {
+            $this->fileTransfer->copyOrFail($sourceDisk, $sourcePath, $targetDisk, $targetPath, $media->visibility);
+            $written[] = $targetPath;
 
-        $cleanup = $this->files->originalIsShared($media) ? [] : [[$sourceDisk, $sourcePath]];
+            $cleanup = $this->files->originalIsShared($media) ? [] : [[$sourceDisk, $sourcePath]];
 
-        foreach ($this->followingVariants($media, $sourceDisk) as $name) {
-            $path = $media->getPath($name);
+            foreach ($this->followingVariants($media, $sourceDisk) as $name) {
+                $path = $media->getPath($name);
 
-            $this->fileTransfer->copy($sourceDisk, $path, $targetDisk, $path, $media->visibility);
-            $cleanup[] = [$sourceDisk, $path];
+                // A variant whose file is already gone has nothing to carry over.
+                if (! Storage::disk($sourceDisk)->exists($path)) {
+                    continue;
+                }
+
+                $this->fileTransfer->copyOrFail($sourceDisk, $path, $targetDisk, $path, $media->visibility);
+                $written[] = $path;
+                $cleanup[] = [$sourceDisk, $path];
+            }
+        } catch (Throwable $exception) {
+            foreach ($written as $path) {
+                $this->fileTransfer->delete($targetDisk, $path);
+            }
+
+            throw $exception;
         }
 
         return [$targetPath, $cleanup];

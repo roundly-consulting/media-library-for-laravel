@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Tests;
 
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\ParallelTesting;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
+use League\Flysystem\Filesystem;
 use RoundlyConsulting\MediaLibrary\MediaLibraryServiceProvider;
+use RoundlyConsulting\MediaLibrary\Tests\Fixtures\WriteFailingAdapter;
 use RoundlyConsulting\Testing\PackageTestCase;
 
 abstract class TestCase extends PackageTestCase
@@ -25,6 +28,21 @@ abstract class TestCase extends PackageTestCase
         // so they cannot exercise the "local disk cannot presign -> signed streaming route"
         // fallback. This plain local disk throws on temporaryUrl(), like production local disks.
         Storage::disk('secure')->deleteDirectory('');
+
+        // Disks whose writes (or visibility changes) fail, reported as `false` (`'throw' => false`).
+        Storage::extend('write-failing', static function ($app, array $config): FilesystemAdapter {
+            $adapter = new WriteFailingAdapter(
+                (string) $config['root'],
+                failingPaths: $config['failing_paths'] ?? null,
+                failVisibility: (bool) ($config['fail_visibility'] ?? false),
+                failWrites: (bool) ($config['fail_writes'] ?? true),
+            );
+
+            return new FilesystemAdapter(new Filesystem($adapter, $config), $adapter, $config);
+        });
+
+        Storage::disk('flaky-variants')->deleteDirectory('');
+        Storage::disk('sticky')->deleteDirectory('');
     }
 
     /**
@@ -87,6 +105,29 @@ abstract class TestCase extends PackageTestCase
             'filesystems.disks.secure' => [
                 'driver' => 'local',
                 'root' => storage_path('framework/testing/disks/secure'.(($token = ParallelTesting::token()) ? "_test_{$token}" : '')),
+            ],
+
+            'filesystems.disks.flaky' => [
+                'driver' => 'write-failing',
+                'root' => storage_path('framework/testing/disks/flaky'.(($token = ParallelTesting::token()) ? "_test_{$token}" : '')),
+                'throw' => false,
+            ],
+
+            // Takes originals and most variants, refuses the `watermark` variant's file.
+            'filesystems.disks.flaky-variants' => [
+                'driver' => 'write-failing',
+                'root' => storage_path('framework/testing/disks/flaky-variants'.(($token = ParallelTesting::token()) ? "_test_{$token}" : '')),
+                'failing_paths' => '#/variants/watermark#',
+                'throw' => false,
+            ],
+
+            // Takes writes, refuses visibility changes.
+            'filesystems.disks.sticky' => [
+                'driver' => 'write-failing',
+                'root' => storage_path('framework/testing/disks/sticky'.(($token = ParallelTesting::token()) ? "_test_{$token}" : '')),
+                'fail_writes' => false,
+                'fail_visibility' => true,
+                'throw' => false,
             ],
         ];
     }

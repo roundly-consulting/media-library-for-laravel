@@ -12,6 +12,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Events\DraftMediaHasBeenBound;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
@@ -29,7 +30,8 @@ use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
  * is enforced and its variants are generated.
  *
  * Throws {@see DraftMediaNotFound} when no draft matches the token, {@see DraftMediaExpired}
- * when the draft's TTL has lapsed and {@see FileUnacceptableForBucket} when the bucket refuses it.
+ * when the draft's TTL has lapsed, {@see FileUnacceptableForBucket} when the bucket refuses it and
+ * {@see FileCannotBeWritten} when the bucket's disk refuses the original (the draft stays as it was).
  */
 final class BindDraftMediaAction
 {
@@ -96,11 +98,27 @@ final class BindDraftMediaAction
 
         $this->diskResolver->ensureDiskExists($disk);
 
+        // The original goes first: a refused write throws while the draft is still whole.
+        $cleanup = $this->relocateOriginal($media, $disk, $visibility);
+
         // Variants rendered for the draft are re-rendered on the new storage by the reconcile.
         $this->files->deleteVariants($media);
         $media->generated_variants = [];
         $media->variants_disk = $variantsDisk;
 
+        return $cleanup;
+    }
+
+    /**
+     * Put the original on the bucket's disk with the bucket's visibility. Returns the source
+     * files to delete once the row points at their replacement.
+     *
+     * @return list<array{0: string, 1: string}>
+     *
+     * @throws FileCannotBeWritten when the disk refuses the write or the visibility change
+     */
+    private function relocateOriginal(Media $media, string $disk, string $visibility): array
+    {
         if ($disk === $media->disk && $visibility === $media->visibility) {
             return [];
         }
@@ -110,7 +128,10 @@ final class BindDraftMediaAction
         $shared = $this->files->originalIsShared($media);
 
         if ($disk === $sourceDisk && ! $shared) {
-            Storage::disk($disk)->setVisibility($sourcePath, $visibility);
+            if (! Storage::disk($disk)->setVisibility($sourcePath, $visibility)) {
+                throw FileCannotBeWritten::toDisk($sourcePath, $disk);
+            }
+
             $media->visibility = $visibility;
 
             return [];
@@ -118,8 +139,13 @@ final class BindDraftMediaAction
 
         $targetPath = $this->files->freePath($media, $disk, $disk === $sourceDisk ? null : $sourcePath);
 
-        $this->fileTransfer->copy($sourceDisk, $sourcePath, $disk, $targetPath, $visibility);
-        Storage::disk($disk)->setVisibility($targetPath, $visibility);
+        $this->fileTransfer->copyOrFail($sourceDisk, $sourcePath, $disk, $targetPath, $visibility);
+
+        if (! Storage::disk($disk)->setVisibility($targetPath, $visibility)) {
+            $this->fileTransfer->delete($disk, $targetPath);
+
+            throw FileCannotBeWritten::toDisk($targetPath, $disk);
+        }
 
         $media->disk = $disk;
         $media->path = $targetPath;
