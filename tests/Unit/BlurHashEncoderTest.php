@@ -89,3 +89,20 @@ it('encodes a two-band image with non-zero AC components', function (): void {
     expect($top[0])->toBeGreaterThan($bottom[0])
         ->and($bottom[2])->toBeGreaterThan($top[2]);
 });
+
+/*
+ * Reference vector: decoded by woltapp/blurhash's own TypeScript decoder (decode.ts) at 32x32.
+ * AC component i starts at character 4 + 2i; reading it at 4 + 2(i - 1) took the DC's last two
+ * characters for the first AC, which a solid-colour round trip (all AC zero) never shows.
+ */
+it('decodes a blurhash exactly like the reference implementation', function (): void {
+    $decoded = (new BlurHashEncoder)->decodeToRgba('LEHV6nWB2yk8pyo0adR*.7kCMdnj', 32, 32);
+
+    $pixel = static fn (int $x, int $y): array => array_slice($decoded->pixels, ($y * 32 + $x) * 4, 3);
+
+    foreach ([[[0, 0], [135, 164, 177]], [[16, 16], [158, 125, 108]], [[15, 15], [158, 127, 112]]] as [[$x, $y], $expected]) {
+        foreach ($pixel($x, $y) as $channel => $value) {
+            expect(abs($value - $expected[$channel]))->toBeLessThanOrEqual(1);
+        }
+    }
+});

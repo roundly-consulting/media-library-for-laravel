@@ -100,7 +100,8 @@ final class BlurHashEncoder
             if ($i === 0) {
                 $colors[] = $this->decodeDc($this->decodeBase83(substr($hash, 2, 4)));
             } else {
-                $value = $this->decodeBase83(substr($hash, 4 + ($i - 1) * 2, 2));
+                // After the size flag, the max value and the 4-character DC: AC i sits at 4 + 2i.
+                $value = $this->decodeBase83(substr($hash, 4 + $i * 2, 2));
                 $colors[] = $this->decodeAc($value, $maximumValue);
             }
         }
