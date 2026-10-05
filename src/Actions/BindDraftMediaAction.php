@@ -6,6 +6,7 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
@@ -52,14 +53,20 @@ final class BindDraftMediaAction
         $target = $this->guard->bucketFor($owner, $bucket);
         $this->guard->ensureAcceptsMedia($target, $bucket, $media);
 
-        $cleanup = $this->applyBucketStorage($media, $target);
+        $cleanup = DB::transaction(function () use ($media, $token, $owner, $bucket, $target): array {
+            $this->claim($media, $token);
 
-        $media->model_type = $owner->getMorphClass();
-        $media->model_id = $owner->getKey();
-        $media->bucket_name = $bucket;
-        $media->draft_token = null;
-        $media->draft_expires_at = null;
-        $media->save();
+            $cleanup = $this->applyBucketStorage($media, $target);
+
+            $media->model_type = $owner->getMorphClass();
+            $media->model_id = $owner->getKey();
+            $media->bucket_name = $bucket;
+            $media->draft_token = null;
+            $media->draft_expires_at = null;
+            $media->save();
+
+            return $cleanup;
+        });
 
         // After the commit — a host binding inside its own transaction may still roll back.
         foreach ($cleanup as [$disk, $path]) {
@@ -157,6 +164,23 @@ final class BindDraftMediaAction
         $media->visibility = $visibility;
 
         return $shared ? [] : [[$sourceDisk, $sourcePath]];
+    }
+
+    /**
+     * Take the token off the draft — only while it still carries it. Of two binds racing for one
+     * token, the second finds it gone and fails; a failure later in the bind rolls the claim back.
+     */
+    private function claim(Media $media, string $token): void
+    {
+        $claimed = MediaModel::query()
+            ->whereKey($media->getKey())
+            ->where('draft_token', $token)
+            ->toBase()
+            ->update(['draft_token' => null]);
+
+        if ($claimed === 0) {
+            throw DraftMediaNotFound::forToken($token);
+        }
     }
 
     private function findDraft(string $token): Media
