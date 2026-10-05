@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\MediaLibrary\Concerns\InteractsWithMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
+use RoundlyConsulting\Testing\Fixtures\Concerns\RecordsLocks;
 
 /**
  * Buckets for the failure paths: storage that refuses writes, buckets that move a bound draft
@@ -20,12 +21,17 @@ final class EdgeCaseUser extends Model implements HasMedia
 {
     use InteractsWithMedia;
 
+    // Its row locks are recorded (SQLite compiles `lockForUpdate()` to nothing).
+    use RecordsLocks;
+
     protected $table = 'test_users';
 
     protected $guarded = [];
 
     public function registerMediaBuckets(): void
     {
+        $this->addMediaBucket('single')->useDisk('public')->singleFile();
+
         // Every write to this disk fails, reported as `false`.
         $this->addMediaBucket('unwritable')->useDisk('flaky');
 

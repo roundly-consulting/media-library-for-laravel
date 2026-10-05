@@ -70,6 +70,10 @@ final class BucketGuard
 
     /**
      * Enforce `singleFile()`: permanently delete every other media `$owner` holds in the bucket.
+     *
+     * Two adds for one owner can race (a double submit). Enforcement is serialized on the owner's
+     * row lock, and an entrant that a concurrent one has already removed backs off — the bucket
+     * is the other's now — so exactly one media is left, never none.
      */
     public function enforceSingleFile(?MediaBucket $bucket, Model $owner, string $bucketName, Media $keep): void
     {
@@ -77,12 +81,23 @@ final class BucketGuard
             return;
         }
 
-        MediaModel::query()
-            ->forModel($owner)
-            ->inBucket($bucketName)
-            ->whereKeyNot($keep->getKey())
-            ->get()
-            ->each(fn (Media $media) => $this->deleteMedia->execute($media));
+        $owner->getConnection()->transaction(function () use ($owner, $bucketName, $keep): void {
+            $owner->newQueryWithoutScopes()
+                ->whereKey($owner->getKey())
+                ->lockForUpdate()
+                ->first([$owner->getKeyName()]);
+
+            if (! MediaModel::query()->whereKey($keep->getKey())->exists()) {
+                return;
+            }
+
+            MediaModel::query()
+                ->forModel($owner)
+                ->inBucket($bucketName)
+                ->whereKeyNot($keep->getKey())
+                ->get()
+                ->each(fn (Media $media) => $this->deleteMedia->execute($media));
+        });
     }
 
     private function fitsDimensions(MediaBucket $bucket, ?int $width, ?int $height): bool
