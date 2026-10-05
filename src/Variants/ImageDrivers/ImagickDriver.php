@@ -33,8 +33,10 @@ final class ImagickDriver implements ImageDriver
         // coder: left to choose, ImageMagick renders whatever it recognises — an SVG included.
         $image = ImageDecodeGuard::inspect($path, fn (string $coder): ?array => $this->measure($coder, $path));
 
+        // `[0]`: the first frame only. Reading every frame leaves Imagick on the LAST one, which
+        // for an optimized GIF is a small patch, not the picture.
         $this->image = new Imagick;
-        $this->image->readImage($image->coder.':'.$path);
+        $this->image->readImage($image->coder.':'.$path.'[0]');
         $this->autoOrient();
         $this->format = strtolower($this->image->getImageFormat());
 
