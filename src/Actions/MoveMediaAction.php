@@ -47,6 +47,10 @@ final class MoveMediaAction
     ) {}
 
     /**
+     * `$keepOwner` makes it a disk-only move: `$toModel` and `$bucket` are ignored, the owner and
+     * bucket stay exactly as stored — even when the owner is soft-deleted or gone, which the
+     * `model` relation cannot tell from "no owner" — and the variants are not reconciled.
+     *
      * @throws FileUnacceptableForBucket when re-homing into a bucket that does not accept the media
      * @throws FileCannotBeWritten when the target disk refuses a write (nothing is changed)
      */
@@ -55,12 +59,13 @@ final class MoveMediaAction
         HasMedia|Model|null $toModel = null,
         string $bucket = 'default',
         ?string $disk = null,
+        bool $keepOwner = false,
     ): Media {
         $targetDisk = $disk ?? $media->disk;
         $this->diskResolver->ensureDiskExists($targetDisk);
 
-        $rehomed = $this->isRehome($media, $toModel, $bucket);
-        $targetBucket = $this->guard->bucketFor($toModel, $bucket);
+        $rehomed = ! $keepOwner && $this->isRehome($media, $toModel, $bucket);
+        $targetBucket = $rehomed ? $this->guard->bucketFor($toModel, $bucket) : null;
 
         if ($rehomed) {
             $this->guard->ensureAcceptsMedia($targetBucket, $bucket, $media);
@@ -74,8 +79,10 @@ final class MoveMediaAction
             [$targetPath, $cleanup] = $this->relocateFiles($media, $sourceDisk, $targetDisk);
         }
 
-        DB::transaction(function () use ($media, $toModel, $bucket, $targetDisk, $sourceDisk, $targetPath): void {
-            $this->rehome($media, $toModel, $bucket);
+        DB::transaction(function () use ($media, $toModel, $bucket, $targetDisk, $sourceDisk, $targetPath, $rehomed): void {
+            if ($rehomed) {
+                $this->rehome($media, $toModel, $bucket);
+            }
 
             if ($targetDisk !== $sourceDisk) {
                 $this->followOriginal($media, $sourceDisk, $targetDisk);

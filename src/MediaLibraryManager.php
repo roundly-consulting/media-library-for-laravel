@@ -135,13 +135,14 @@ class MediaLibraryManager
         return $this->container->make(MoveMediaAction::class)->execute($media, $to, $bucket, $disk);
     }
 
-    /** Move a media's files onto another disk, keeping its owner and bucket. */
+    /**
+     * Move a media's files onto another disk, keeping its owner and bucket exactly as stored —
+     * a soft-deleted or missing owner included — and its variants as they are.
+     */
     public function moveToDisk(Media $media, string $disk): Media
     {
-        $owner = $media->model;
-
         return $this->container->make(MoveMediaAction::class)
-            ->execute($media, $owner instanceof Model ? $owner : null, $media->bucket_name, $disk);
+            ->execute($media, null, $media->bucket_name, $disk, keepOwner: true);
     }
 
     /** Move only a media's variant files onto another disk; the original stays put. */
