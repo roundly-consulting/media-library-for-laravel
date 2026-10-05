@@ -6,6 +6,79 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Changed
+
+- Replacing a media with a file of another type (a JPEG with a PNG) now renames the stored file to
+  match (`landscape.jpg` becomes `landscape.png`), so its URL changes. A same-type replacement
+  still overwrites in place and keeps its URL. Re-read `getUrl()` after a `replace()` instead of
+  caching the old URL.
+- `MediaLibrary::fake()` now refuses what the real manager refuses: bucket acceptance rules apply
+  to `attach()`, `move()`, `copy()` and `replace()` too, an unconfigured disk throws
+  `DiskDoesNotExist`, and `bindDraft()` returns the draft on its bucket's disk and visibility.
+  Configure the disks your buckets use in your test environment (`Storage::fake()` alone does not
+  add one to `filesystems.disks`).
+- SVG and other non-raster images are never decoded any more, so they get no variants and no
+  placeholders. Render previews of such files yourself if you need them.
+- `MediaLibrary::rulesFor()` emits the exact size cap in kilobytes (e.g. `max:0.9765625`) and a
+  `media_dimensions:` rule in place of Laravel's `dimensions:`, so the rules never pass a file the
+  add then refuses. Its failure message falls back to your `validation.dimensions` line; add a
+  `validation.media_dimensions` line to word it differently.
+- `withVisibility()` on an add or a bucket accepts only `public` and `private` and throws the new
+  `InvalidVisibility` otherwise. `Private` used to be stored and treated as public.
+- Adding, attaching, binding, moving or copying media to a model that was never saved throws the
+  new `MediaOwnerNotSaved`. Save the owner first.
+- A variant that fails to render during an add, bind, attach, move, copy or replace is reported to
+  your exception handler and skipped; the call succeeds with the media stored. An explicit
+  `regenerate()` still throws.
+
+### Fixed
+
+- A move, variant move, copy or draft bind onto a disk that refuses the write (one configured with
+  `'throw' => false`) throws the new `FileCannotBeWritten` and changes nothing, instead of
+  committing the new location and deleting the only copy.
+- `moveToDisk()` keeps the owner, bucket and variants of media whose owner is soft-deleted or gone,
+  instead of turning it into global media and dropping its variants.
+- Inside your own `DB::transaction()`, moves, draft binds, re-homes and replacements delete the
+  files they release only once your transaction commits, so a rollback keeps the bytes the
+  restored row points at.
+- The queued variants job is pushed only after the surrounding transaction commits (it implements
+  `ShouldQueueAfterCommit`), so a worker never drops it for a row it cannot see yet.
+- An add or replace whose write fails, or whose source can no longer be read, throws instead of
+  saving a row with no file; variant writes are checked the same way; deduplication only shares
+  a stored file that still exists.
+- Two concurrent adds to a single-file bucket for the same owner leave exactly one media instead of
+  deleting each other.
+- The same draft token can no longer be bound twice by concurrent `bindDraft()` calls.
+- Moving a draft to an owner or a global bucket settles it: the token stops working, `bucket()`
+  lists it and `pruneDrafts()` leaves it alone. Pruning only touches owner-less drafts.
+- Uploads, disk files and streams are copied to the temporary file in chunks rather than read into
+  memory whole.
+- Imagick variants of animated or optimized GIFs come from the first frame, matching GD.
+- ThumbHash placeholders decode to the right picture and aspect ratio, and Blurhash placeholders
+  decode their first AC component correctly, matching the reference implementations.
+- `placeholderDataUri()` and `responsiveImage()` work on Imagick-only hosts (and return no
+  placeholder instead of throwing when neither GD nor Imagick is loaded).
+- `verifyIntegrity()`, `media.verify_checksum_on_read` and `media:verify` keep recognising media
+  stored before `media.checksum_algorithm` changed.
+- Display names longer than the 255-character `name` column are cut to fit, and an add whose row
+  fails to save no longer leaves its file behind.
+- An image a driver cannot decode throws `InvalidVariant` saying so, from GD and Imagick alike.
+
+### Security
+
+- `addFromUrl()` refuses URLs whose host is, resolves to or redirects to a private, loopback,
+  link-local, carrier-grade NAT, cloud-metadata or other reserved address (IPv4 and IPv6,
+  IPv4-mapped included). Every hop is resolved once and the connection pinned to the vetted
+  address, so DNS rebinding cannot swap it. Allow trusted internal hosts with the new
+  `media.remote.allowed_private_hosts`, or turn the guard off with
+  `media.remote.block_private_networks`.
+- `addFromUrl()` streams the download to disk and aborts it as soon as the body passes
+  `media.max_file_size`, even without a `Content-Length`.
+- Images are measured from their header before any decode and skipped (no placeholder, no
+  variants) above the new `media.max_image_pixels` (default 50,000,000), so a small file declaring
+  a huge canvas cannot exhaust memory. Only raster types are decoded, each through an explicit
+  ImageMagick coder, so an SVG can no longer pull a server file into a public thumbnail.
+
 ## 1.0.0 - 2026-10-03
 
 Initial public release.
