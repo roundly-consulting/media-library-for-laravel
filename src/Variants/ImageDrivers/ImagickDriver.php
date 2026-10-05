@@ -9,6 +9,7 @@ use ImagickException;
 use ImagickPixel;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
+use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
 use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 
 /**
@@ -36,7 +37,13 @@ final class ImagickDriver implements ImageDriver
         // `[0]`: the first frame only. Reading every frame leaves Imagick on the LAST one, which
         // for an optimized GIF is a small patch, not the picture.
         $this->image = new Imagick;
-        $this->image->readImage($image->coder.':'.$path.'[0]');
+
+        try {
+            $this->image->readImage($image->coder.':'.$path.'[0]');
+        } catch (ImagickException $exception) {
+            throw InvalidVariant::undecodable('ImageMagick cannot read it', $exception);
+        }
+
         $this->autoOrient();
         $this->format = strtolower($this->image->getImageFormat());
 

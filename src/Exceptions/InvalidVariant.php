@@ -48,6 +48,11 @@ final class InvalidVariant extends MediaLibraryException
         return new self("The image could not be decoded: {$reason}.", 0, $previous);
     }
 
+    public static function canvasUnavailable(int $width, int $height): self
+    {
+        return new self("The image driver could not allocate a {$width}x{$height} canvas.");
+    }
+
     public static function notGenerated(string $name): self
     {
         return new self("The variant [{$name}] has not been generated for this media.");

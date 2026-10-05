@@ -38,7 +38,7 @@ final class GdDriver implements ImageDriver
         $image = @imagecreatefromstring($contents);
 
         if ($image === false) {
-            throw InvalidVariant::unknownName('original');
+            throw InvalidVariant::undecodable('GD cannot read it');
         }
 
         $image = $this->orient($image, ExifOrientation::fromBytes($contents));
@@ -345,7 +345,7 @@ final class GdDriver implements ImageDriver
         $canvas = imagecreatetruecolor(max(1, $width), max(1, $height));
 
         if ($canvas === false) {
-            throw InvalidVariant::unknownName('canvas');
+            throw InvalidVariant::canvasUnavailable($width, $height);
         }
 
         return $canvas;
