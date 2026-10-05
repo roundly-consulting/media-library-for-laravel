@@ -7,6 +7,7 @@ namespace RoundlyConsulting\MediaLibrary\Tests\Fixtures;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\MediaLibrary\Concerns\InteractsWithMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
+use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
 
 /**
  * Buckets for the failure paths: storage that refuses writes, buckets that move a bound draft
@@ -33,5 +34,14 @@ final class EdgeCaseUser extends Model implements HasMedia
 
         // A disk that takes writes but refuses visibility changes.
         $this->addMediaBucket('sticky')->useDisk('sticky')->private();
+
+        // The same variant in a public and a private bucket on one disk: binding a draft from the
+        // first into the second re-renders the variant onto the very path it had.
+        $thumb = function (VariantRegistrar $v): void {
+            $v->add('thumb')->width(8)->format('png');
+        };
+
+        $this->addMediaBucket('thumbs')->useDisk('public')->registerVariants($thumb);
+        $this->addMediaBucket('thumbs-private')->useDisk('public')->private()->registerVariants($thumb);
     }
 }

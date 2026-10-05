@@ -174,7 +174,8 @@ final class ReplaceMediaAction
             return;
         }
 
-        Storage::disk($oldDisk)->delete($oldPath);
+        // After the commit: a host rollback restores the row, still pointing at this file.
+        $this->files->deleteAfterCommit($media, $oldDisk, $oldPath);
     }
 
     private function discardSource(AddedFile $source): void

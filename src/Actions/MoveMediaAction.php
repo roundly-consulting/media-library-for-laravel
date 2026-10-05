@@ -25,7 +25,8 @@ use Throwable;
  * {@see MoveMediaVariantsAction}.
  *
  * The DB update runs inside a transaction; the physical source files are deleted only after the
- * transaction commits, so a rollback never orphans the row from its files.
+ * transaction commits — the outermost one, when a host wraps the move in its own — so a rollback
+ * never orphans the row from its files.
  *
  * The source original is refcount-guarded: while another row (soft-deleted ones included) still
  * points at it, a cross-disk move COPIES it and leaves the source in place. On the target disk the
@@ -93,9 +94,10 @@ final class MoveMediaAction
             $media->save();
         });
 
-        // Ordered after commit so a rollback never leaves the row pointing at deleted files.
+        // After the commit — the host's, when the move runs inside one — so a rollback never
+        // leaves the row pointing at deleted files.
         foreach ($cleanup as [$cleanupDisk, $cleanupPath]) {
-            $this->fileTransfer->delete($cleanupDisk, $cleanupPath);
+            $this->files->deleteAfterCommit($media, $cleanupDisk, $cleanupPath);
         }
 
         if ($rehomed) {

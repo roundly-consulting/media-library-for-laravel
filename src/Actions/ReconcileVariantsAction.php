@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
-use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 
 /**
  * Brings a media's generated variants in line with the bucket it now sits in: variants that bucket
@@ -21,6 +21,7 @@ final class ReconcileVariantsAction
 {
     public function __construct(
         private readonly DispatchVariantsAction $dispatchVariants,
+        private readonly StoredFiles $files,
     ) {}
 
     public function execute(Media $media): void
@@ -32,11 +33,13 @@ final class ReconcileVariantsAction
         $stale = array_values(array_diff(array_map('strval', array_keys($media->generated_variants ?? [])), $defined));
 
         foreach ($stale as $name) {
-            if (isset($records[$name])) {
-                Storage::disk($records[$name]->disk)->delete($media->getPath($name));
-            }
-
+            $path = $media->getPath($name);
             $media->forgetGeneratedVariant($name);
+
+            if (isset($records[$name])) {
+                // After the commit: a host rollback restores the record, so the file must stay.
+                $this->files->deleteAfterCommit($media, $records[$name]->disk, $path);
+            }
         }
 
         if ($stale !== []) {

@@ -61,8 +61,9 @@ final class BindDraftMediaAction
         $media->draft_expires_at = null;
         $media->save();
 
+        // After the commit — a host binding inside its own transaction may still roll back.
         foreach ($cleanup as [$disk, $path]) {
-            $this->fileTransfer->delete($disk, $path);
+            $this->files->deleteAfterCommit($media, $disk, $path);
         }
 
         $this->guard->enforceSingleFile($target, $owner, $bucket, $media);
@@ -76,8 +77,8 @@ final class BindDraftMediaAction
     }
 
     /**
-     * Put the draft's files where the bucket stores media. Returns the source files to delete
-     * once the row points at their replacements.
+     * Put the draft's files where the bucket stores media. Returns the files to delete once the
+     * row points at their replacements (the draft's original when it moved, and its variants).
      *
      * @return list<array{0: string, 1: string}>
      */
@@ -101,8 +102,12 @@ final class BindDraftMediaAction
         // The original goes first: a refused write throws while the draft is still whole.
         $cleanup = $this->relocateOriginal($media, $disk, $visibility);
 
-        // Variants rendered for the draft are re-rendered on the new storage by the reconcile.
-        $this->files->deleteVariants($media);
+        // Variants rendered for the draft are re-rendered on the new storage by the reconcile; the
+        // old files go with the rest of the cleanup.
+        foreach (array_keys($media->generatedVariants()) as $name) {
+            $cleanup[] = [$media->diskFor($name), $media->getPath($name)];
+        }
+
         $media->generated_variants = [];
         $media->variants_disk = $variantsDisk;
 

@@ -11,6 +11,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use Throwable;
 
 /**
@@ -18,9 +19,9 @@ use Throwable;
  * wherever it was written (a per-variant `storeOnDisk()` included); the original, the owner and
  * the bucket stay put. Variants are always per-row, so no refcount guard applies.
  *
- * Every variant is copied first; only once all copies landed is the row re-pointed, and only then
- * are the source files removed. A refused write throws {@see FileCannotBeWritten} with the row
- * and every source file untouched.
+ * Every variant is copied first; only once all copies landed is the row re-pointed, and only once
+ * that commits (a host's transaction included) are the source files removed. A refused write
+ * throws {@see FileCannotBeWritten} with the row and every source file untouched.
  *
  * Storing the variants on the original's own disk records `variants_disk` as null again.
  */
@@ -29,6 +30,7 @@ final class MoveMediaVariantsAction
     public function __construct(
         private readonly DiskResolver $diskResolver,
         private readonly FileTransfer $fileTransfer,
+        private readonly StoredFiles $files,
     ) {}
 
     public function execute(Media $media, string $disk): Media
@@ -74,7 +76,7 @@ final class MoveMediaVariantsAction
         });
 
         foreach ($sources as [$sourceDisk, $path]) {
-            $this->fileTransfer->delete($sourceDisk, $path);
+            $this->files->deleteAfterCommit($media, $sourceDisk, $path);
         }
 
         event(new MediaHasBeenMoved($media));

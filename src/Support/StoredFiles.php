@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Support;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
@@ -86,6 +87,25 @@ final class StoredFiles
         }
     }
 
+    /**
+     * Delete a file the row no longer needs once the surrounding transaction commits — at once
+     * when none is open. Inside a host's transaction the package's own is only a savepoint, so
+     * deleting earlier would let a host rollback restore a row pointing at a removed file.
+     *
+     * It is skipped when, by then, some row stores the file as its original, or `$media` records
+     * a variant at it (a re-render landed on the same path).
+     */
+    public function deleteAfterCommit(Media $media, string $disk, string $path): void
+    {
+        DB::afterCommit(function () use ($media, $disk, $path): void {
+            if ($this->isReferencedByOthers($disk, $path, null) || $this->recordsVariantAt($media, $disk, $path)) {
+                return;
+            }
+
+            Storage::disk($disk)->delete($path);
+        });
+    }
+
     /** Delete this media's generated variant files, each from the disk it was written to. */
     public function deleteVariants(Media $media): void
     {
@@ -155,6 +175,17 @@ final class StoredFiles
         }
 
         return $referenced;
+    }
+
+    private function recordsVariantAt(Media $media, string $disk, string $path): bool
+    {
+        foreach (array_keys($media->generatedVariants()) as $name) {
+            if ($media->diskFor($name) === $disk && $media->getPath($name) === $path) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function tidy(Media $media, string $disk, string $directory): void
