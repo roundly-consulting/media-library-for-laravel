@@ -6,8 +6,31 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-05
+
+### Added
+
+- `media.remote.block_private_networks` (default `true`) and `media.remote.allowed_private_hosts`
+  (default `[]`) configure the new private-network guard of `addFromUrl()` (see Security).
+- `media.max_image_pixels` (default `50_000_000`, `null` for no cap): the largest image the package
+  decodes for variants and placeholders.
+- The exceptions `FileCannotBeWritten`, `InvalidVisibility` and `MediaOwnerNotSaved`, plus new
+  `RemoteFileRejected` and `InvalidVariant` factories. All extend `MediaLibraryException`.
+- A `media_dimensions` validation rule (what `MediaLibrary::rulesFor()` emits for a bucket's
+  dimension limits) that measures the size a viewer sees, EXIF orientation applied.
+
 ### Changed
 
+- `addFromUrl()` resolves the URL's host before the request, even under `Http::fake()`. A test that
+  fakes a made-up host name (one that does not resolve, or resolves to a private address such as a
+  local `*.test` domain) now gets `RemoteFileRejected`: add the host to
+  `media.remote.allowed_private_hosts`, or set `media.remote.block_private_networks` to `false`, in
+  your test environment.
+- With the guard on, `addFromUrl()` needs `ext-curl` for URLs with a host name (it pins the
+  connection to the vetted address) and throws `RemoteFileRejected` without it. Address literals
+  and allowlisted host names don't need it.
+- Images larger than `media.max_image_pixels` (50 megapixels by default) are stored without variants
+  or placeholders. If you store larger photos, raise the cap or set it to `null`.
 - Replacing a media with a file of another type (a JPEG with a PNG) now renames the stored file to
   match (`landscape.jpg` becomes `landscape.png`), so its URL changes. A same-type replacement
   still overwrites in place and keeps its URL. Re-read `getUrl()` after a `replace()` instead of
@@ -24,12 +47,17 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   add then refuses. Its failure message falls back to your `validation.dimensions` line; add a
   `validation.media_dimensions` line to word it differently.
 - `withVisibility()` on an add or a bucket accepts only `public` and `private` and throws the new
-  `InvalidVisibility` otherwise. `Private` used to be stored and treated as public.
+  `InvalidVisibility` otherwise. `Private` used to be stored and treated as public. Pass exactly
+  `'public'` or `'private'`.
 - Adding, attaching, binding, moving or copying media to a model that was never saved throws the
   new `MediaOwnerNotSaved`. Save the owner first.
 - A variant that fails to render during an add, bind, attach, move, copy or replace is reported to
   your exception handler and skipped; the call succeeds with the media stored. An explicit
-  `regenerate()` still throws.
+  `regenerate()` still throws. Code that caught the add's exception should check
+  `MediaLibrary::variants($media)->missing()` instead.
+- Maintenance: `composer.json` `homepage` and `support.docs` point at the package's docs page.
+- Documentation: the README hero image uses an absolute URL, so it renders on Packagist and other
+  sites.
 
 ### Fixed
 
