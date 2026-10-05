@@ -205,6 +205,10 @@ final class MoveMediaAction
     {
         $media->bucket_name = $bucket;
 
+        // Re-homing settles a draft, exactly like binding it: the token no longer claims it.
+        $media->draft_token = null;
+        $media->draft_expires_at = null;
+
         if ($toModel instanceof Model) {
             $media->model_type = $toModel->getMorphClass();
             $media->model_id = $toModel->getKey();

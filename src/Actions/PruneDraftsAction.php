@@ -12,8 +12,8 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
  * Deletes expired, never-bound draft media (rows + files) through the refcount-guarded
  * {@see DeleteMediaAction}, returning how many were pruned.
  *
- * Only rows that still carry a `draft_token` and whose `draft_expires_at` is in the past are
- * touched — bound media (token cleared) and unexpired drafts are left entirely alone.
+ * Only owner-less rows that still carry a `draft_token` and whose `draft_expires_at` is in the
+ * past are touched — bound or moved media, and unexpired drafts, are left entirely alone.
  */
 final class PruneDraftsAction
 {
@@ -28,6 +28,8 @@ final class PruneDraftsAction
         // Keyset iteration: deleting while paging by offset (`each()`) skips every other chunk.
         MediaModel::query()
             ->drafts()
+            // An owned row is never an unbound draft, whatever token it may still carry.
+            ->whereNull('model_type')
             ->where('draft_expires_at', '<', CarbonImmutable::now())
             ->lazyById()
             ->each(function (Media $media) use (&$pruned): void {
