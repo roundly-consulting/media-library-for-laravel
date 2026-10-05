@@ -70,6 +70,16 @@ return [
     'remote' => [
         'headers' => [],
         'timeout' => 30,  // seconds, at least 1 (0 would mean no timeout)
+
+        // SSRF guard: refuse URLs whose host is (or resolves to, or redirects to) a private,
+        // loopback, link-local, carrier-grade NAT, cloud-metadata or other reserved address. Each
+        // hop is resolved once and the connection pinned to the vetted address. false turns the
+        // guard off — only for URLs you trust completely.
+        'block_private_networks' => true,
+
+        // Exempt from the guard: host names (exact) and addresses or ranges, e.g.
+        // ['minio.internal', '10.0.5.0/24', 'fd00::/8'].
+        'allowed_private_hosts' => [],
     ],
 
     // Content-addressable dedup + integrity (§7.1/§7.2).

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use League\Flysystem\Filesystem;
 use RoundlyConsulting\MediaLibrary\MediaLibraryServiceProvider;
+use RoundlyConsulting\MediaLibrary\Support\HostResolver;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\WriteFailingAdapter;
 use RoundlyConsulting\Testing\PackageTestCase;
 
@@ -43,6 +44,10 @@ abstract class TestCase extends PackageTestCase
 
         Storage::disk('flaky-variants')->deleteDirectory('');
         Storage::disk('sticky')->deleteDirectory('');
+
+        // No real DNS in the suite: `addFromUrl()` hosts resolve to a public address unless a
+        // test answers otherwise.
+        $this->app->instance(HostResolver::class, new HostResolver(static fn (string $host): array => ['93.184.216.34']));
     }
 
     /**

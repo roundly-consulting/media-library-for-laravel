@@ -153,6 +153,31 @@ final class MediaConfig
         return Config::integer('media.remote.timeout', 30, 1);
     }
 
+    /** Whether `addMediaFromUrl()` refuses private and reserved network addresses (default on). */
+    public static function blockPrivateNetworks(): bool
+    {
+        return Config::boolean('media.remote.block_private_networks', true);
+    }
+
+    /**
+     * Host names, addresses and `address/prefix` ranges exempt from the private-network guard.
+     *
+     * @return list<string>
+     */
+    public static function allowedPrivateHosts(): array
+    {
+        $key = 'media.remote.allowed_private_hosts';
+        $entries = self::stringList($key, self::unlessBlank(config($key)) ?? []);
+
+        foreach ($entries as $entry) {
+            if (str_contains($entry, '/') && ! PrivateNetworks::isValidRange($entry)) {
+                throw self::invalid($key, 'a list of host names, addresses and address/prefix ranges', $entry);
+            }
+        }
+
+        return $entries;
+    }
+
     public static function checksumAlgorithm(): ChecksumAlgorithm
     {
         return Config::enum('media.checksum_algorithm', ChecksumAlgorithm::class, ChecksumAlgorithm::Sha256);

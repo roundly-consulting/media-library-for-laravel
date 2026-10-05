@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Buckets;
 
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
@@ -15,6 +14,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileRejected;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
+use RoundlyConsulting\MediaLibrary\Support\RemoteFileFetcher;
 
 /**
  * Normalizes every supported media source (upload, path, URL, disk file, raw string,
@@ -60,15 +60,14 @@ final class FileAdderFactory
         return $this->describe($path, basename($path), $size === false ? 0 : $size, isTemporary: false);
     }
 
+    /**
+     * The URL is fetched without reaching the host's own network — see {@see RemoteFileFetcher}.
+     *
+     * @throws RemoteFileRejected
+     */
     public function fromUrl(string $url): AddedFile
     {
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-
-        if ($scheme !== 'http' && $scheme !== 'https') {
-            throw RemoteFileRejected::unsupportedScheme($url);
-        }
-
-        $response = Http::withHeaders(MediaConfig::remoteHeaders())->timeout(MediaConfig::remoteTimeout())->get($url);
+        $response = app(RemoteFileFetcher::class)->get($url);
 
         if (! $response->successful()) {
             throw FileDoesNotExist::forPath($url);
