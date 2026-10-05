@@ -8,8 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\MediaLibrary\Actions\AddMediaAction;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
+use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVisibility;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 
 /**
  * Fluent builder collecting per-add overrides (name, disks, visibility, custom properties)
@@ -73,9 +75,10 @@ final class PendingFileAdd
         return $this;
     }
 
+    /** `public` or `private`; anything else throws {@see InvalidVisibility}. */
     public function withVisibility(string $visibility): self
     {
-        $this->visibility = $visibility;
+        $this->visibility = MediaConfig::visibility($visibility);
 
         return $this;
     }

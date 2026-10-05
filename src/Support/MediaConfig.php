@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Support;
 
 use RoundlyConsulting\MediaLibrary\Enums\ChecksumAlgorithm;
+use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVisibility;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
@@ -110,6 +111,21 @@ final class MediaConfig
             [self::VISIBILITY_PUBLIC, self::VISIBILITY_PRIVATE],
             self::VISIBILITY_PUBLIC,
         );
+    }
+
+    /**
+     * A visibility a caller asked for, checked: exactly `public` or `private`.
+     *
+     * @throws InvalidVisibility for anything else (`Private` included — read as public, it would
+     *                           have published the file)
+     */
+    public static function visibility(string $visibility): string
+    {
+        if ($visibility !== self::VISIBILITY_PUBLIC && $visibility !== self::VISIBILITY_PRIVATE) {
+            throw InvalidVisibility::given($visibility);
+        }
+
+        return $visibility;
     }
 
     /** The package-level size cap in bytes (at least 1), or null when there is none. */

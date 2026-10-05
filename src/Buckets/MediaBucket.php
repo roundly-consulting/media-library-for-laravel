@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Buckets;
 
 use Closure;
+use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVisibility;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Variants\VariantCollection;
 use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
@@ -174,9 +175,10 @@ final class MediaBucket
         return $this;
     }
 
+    /** `public` or `private`; anything else throws {@see InvalidVisibility}. */
     public function withVisibility(string $visibility): self
     {
-        $this->visibility = $visibility;
+        $this->visibility = MediaConfig::visibility($visibility);
 
         return $this;
     }
