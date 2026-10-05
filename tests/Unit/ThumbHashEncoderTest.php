@@ -79,3 +79,29 @@ it('produces deterministic bytes for fixed pixels', function (): void {
 
     expect($encoder->encode($image))->toBe($encoder->encode($image));
 });
+
+/*
+ * Reference vectors: decoded by evanw/thumbhash's own js/thumbhash.js (thumbHashToRGBA). The
+ * decoder read its AC factors from the header bytes and sized every non-alpha hash square, so
+ * shape-only checks never saw that the picture was wrong.
+ */
+it('decodes a thumbhash exactly like the reference implementation', function (string $hash, int $width, int $height, array $first, array $centre, array $last): void {
+    $decoded = (new ThumbHashEncoder)->decodeToRgba($hash);
+
+    $pixel = static fn (int $x, int $y): array => array_slice($decoded->pixels, ($y * $decoded->width + $x) * 4, 4);
+    $near = static function (array $actual, array $expected): void {
+        foreach ($expected as $channel => $value) {
+            expect(abs($actual[$channel] - $value))->toBeLessThanOrEqual(1);
+        }
+    };
+
+    expect([$decoded->width, $decoded->height])->toBe([$width, $height]);
+
+    $near($pixel(0, 0), $first);
+    $near($pixel(intdiv($width, 2), intdiv($height, 2)), $centre);
+    $near($pixel($width - 1, $height - 1), $last);
+})->with([
+    'the sunrise reference (portrait)' => [SUNRISE_THUMBHASH, 23, 32, [64, 77, 113, 255], [140, 109, 88, 255], [0, 4, 39, 255]],
+    'a landscape gradient' => ['4PcJPJpwd3eAiHh4iHdwcAf3hw==', 32, 18, [0, 13, 166, 255], [135, 144, 125, 255], [230, 242, 113, 255]],
+    'a portrait gradient with alpha' => ['o+iFGw4okLGoeIiQsQrpWXR3cHd3eIg=', 19, 32, [120, 136, 134, 9], [133, 139, 130, 151], [226, 224, 118, 244]],
+]);

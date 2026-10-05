@@ -163,19 +163,23 @@ final class ThumbHashEncoder
 
         $aDc = 1.0;
         $aScale = 0.0;
-        $acIndex = $hasAlpha ? 6 : 5;
 
         if ($hasAlpha) {
             $aDc = (($bytes[5] ?? 0) & 15) / 15;
             $aScale = ((($bytes[5] ?? 0) >> 4) & 15) / 15;
         }
 
-        $decodeChannel = function (int $nx, int $ny, float $scale) use ($bytes, &$acIndex): array {
+        // The AC factors are nibbles packed from the first byte after the header (5 bytes, or 6
+        // with alpha), counted from zero across all channels.
+        $acStart = $hasAlpha ? 6 : 5;
+        $acIndex = 0;
+
+        $decodeChannel = function (int $nx, int $ny, float $scale) use ($bytes, $acStart, &$acIndex): array {
             $ac = [];
 
             for ($cy = 0; $cy < $ny; $cy++) {
                 for ($cx = $cy > 0 ? 0 : 1; $cx * $ny < $nx * ($ny - $cy); $cx++) {
-                    $byte = $bytes[$acIndex >> 1] ?? 0;
+                    $byte = $bytes[$acStart + ($acIndex >> 1)] ?? 0;
                     $ac[] = ((($byte >> (($acIndex & 1) << 2)) & 15) / 7.5 - 1) * $scale;
                     $acIndex++;
                 }
@@ -189,8 +193,11 @@ final class ThumbHashEncoder
         $qAc = $decodeChannel(3, 3, $qScale * 1.25);
         $aAc = $hasAlpha ? $decodeChannel(5, 5, $aScale) : [];
 
-        $w = max(3, $isLandscape ? 32 : (int) round(32 * $ly / max($lx, $ly)));
-        $h = max(3, $isLandscape ? (int) round(32 * $lx / max($lx, $ly)) : 32);
+        // The output takes the encoded aspect ratio (thumbHashToApproximateAspectRatio), read
+        // from the unclamped factor counts.
+        $ratio = $this->approximateAspectRatio($header16, $isLandscape === 1, $hasAlpha === 1);
+        $w = max(1, (int) round($ratio > 1 ? 32 : 32 * $ratio));
+        $h = max(1, (int) round($ratio > 1 ? 32 / $ratio : 32));
 
         $pixels = [];
 
@@ -213,6 +220,15 @@ final class ThumbHashEncoder
         }
 
         return new RgbaImage($w, $h, $pixels);
+    }
+
+    /** Width over height, as encoded: the unclamped DCT factor counts along each side. */
+    private function approximateAspectRatio(int $header16, bool $isLandscape, bool $hasAlpha): float
+    {
+        $lx = $isLandscape ? ($hasAlpha ? 5 : 7) : $header16 & 7;
+        $ly = $isLandscape ? $header16 & 7 : ($hasAlpha ? 5 : 7);
+
+        return $lx > 0 && $ly > 0 ? $lx / $ly : 1.0;
     }
 
     /**
@@ -297,9 +313,10 @@ final class ThumbHashEncoder
         return array_values(unpack('C*', $binary) ?: []);
     }
 
+    /** As the reference: scaled to 0..255, clamped, then truncated (its Uint8Array store). */
     private function clampByte(float $value): int
     {
-        return max(0, min(255, (int) round($value * 255)));
+        return (int) max(0.0, 255 * min(1.0, $value));
     }
 
     private function round(float $value): int
