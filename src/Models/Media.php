@@ -459,7 +459,8 @@ class Media extends Model
     }
 
     /**
-     * Re-hash the stored original and compare it to the recorded baseline.
+     * Re-hash the stored original and compare it to the recorded baseline — with the algorithm
+     * the baseline was taken with, even after `media.checksum_algorithm` changed.
      *
      * Returns false when no baseline was recorded, the file is missing, or the bytes drifted.
      */
@@ -469,9 +470,7 @@ class Media extends Model
             return false;
         }
 
-        $actual = app(Checksum::class)->forStoredOriginal($this);
-
-        return $actual !== null && hash_equals($this->checksum, $actual);
+        return app(Checksum::class)->matchesStoredOriginal($this);
     }
 
     /** Where an un-generated variant WOULD be written — the same derivation the generator uses. */

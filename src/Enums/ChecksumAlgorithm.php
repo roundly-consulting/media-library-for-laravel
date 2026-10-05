@@ -21,4 +21,14 @@ enum ChecksumAlgorithm: string
     case Sha3_256 = 'sha3-256';
     case Sha3_384 = 'sha3-384';
     case Sha3_512 = 'sha3-512';
+
+    /** The length of this algorithm's hex digest, as stored in the `checksum` column. */
+    public function digestLength(): int
+    {
+        return match ($this) {
+            self::Sha256, self::Sha512_256, self::Sha3_256 => 64,
+            self::Sha384, self::Sha3_384 => 96,
+            self::Sha512, self::Sha3_512 => 128,
+        };
+    }
 }

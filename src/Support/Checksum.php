@@ -46,6 +46,77 @@ final class Checksum
     }
 
     /**
+     * Whether a media's stored original still hashes to its recorded checksum — under the
+     * algorithm that recorded it, not merely today's `media.checksum_algorithm`.
+     *
+     * The row does not store its algorithm, so every accepted algorithm whose digest has the
+     * recorded length is a candidate (the configured one included): changing the setting must
+     * not turn every file stored before into "drifted". The file is read once, hashed by every
+     * candidate at the same time.
+     */
+    public function matchesStoredOriginal(Media $media): bool
+    {
+        $recorded = strtolower((string) $media->checksum);
+
+        if ($recorded === '') {
+            return false;
+        }
+
+        $stream = Storage::disk($media->disk)->readStream($media->getPath());
+
+        if (! is_resource($stream)) {
+            return false;
+        }
+
+        $contexts = [];
+
+        foreach ($this->candidatesFor($recorded) as $algorithm) {
+            $contexts[] = hash_init($algorithm);
+        }
+
+        while (! feof($stream)) {
+            $chunk = fread($stream, 1048576);
+
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+
+            foreach ($contexts as $context) {
+                hash_update($context, $chunk);
+            }
+        }
+
+        fclose($stream);
+
+        foreach ($contexts as $context) {
+            if (hash_equals($recorded, hash_final($context))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The configured algorithm, then every other accepted one with a digest of this length.
+     *
+     * @return list<string>
+     */
+    private function candidatesFor(string $checksum): array
+    {
+        $configured = MediaConfig::checksumAlgorithm();
+        $candidates = [$configured->value];
+
+        foreach (ChecksumAlgorithm::cases() as $algorithm) {
+            if ($algorithm !== $configured && $algorithm->digestLength() === strlen($checksum)) {
+                $candidates[] = $algorithm->value;
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
      * The existing, non-trashed canonical row whose original this add should reuse, or null when
      * nothing matches (so a fresh copy is stored). Excludes the row itself when given.
      */
