@@ -16,6 +16,7 @@ use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderGenerator;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
+use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use Throwable;
@@ -112,7 +113,8 @@ final class ReplaceMediaAction
         $media->height = $dimensions[1] ?? null;
         $media->placeholders = null;
 
-        if (! $media->isImage()) {
+        // Only raster images are ever decoded (an SVG never is).
+        if (! ImageDecodeGuard::decodes($media->mime_type)) {
             return;
         }
 

@@ -28,6 +28,12 @@ return [
     // Image driver: 'imagick' (default) | 'gd'; anything else throws. With 'imagick' and no
     // imagick extension, gd is used.
     'image_driver' => env('MEDIA_IMAGE_DRIVER', 'imagick'),
+
+    // The largest image, in pixels (width x height), the package decodes for variants and
+    // placeholders. Read from the file header before anything is decoded; a bigger image is
+    // stored without either, so a tiny file declaring a huge canvas cannot exhaust memory.
+    // null => no cap, otherwise at least 1.
+    'max_image_pixels' => 50_000_000,
     'variant' => [
         'quality' => 75,         // default jpg/webp quality
         'background' => '#ffffff',  // flatten color for transparent => jpg

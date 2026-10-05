@@ -9,6 +9,7 @@ use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
+use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 
 /**
  * GD-backed fallback image driver, used when ext-imagick is unavailable.
@@ -28,6 +29,9 @@ final class GdDriver implements ImageDriver
 
     public function load(string $path): ImageDriver
     {
+        // Type and pixel count are checked from the header first: GD would decode anything.
+        ImageDecodeGuard::inspect($path);
+
         $contents = (string) file_get_contents($path);
         // Suppress GD's warning on undecodable data so it surfaces as our typed exception rather
         // than the host's error handler converting the warning into an ErrorException.

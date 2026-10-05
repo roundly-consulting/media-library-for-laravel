@@ -6,6 +6,7 @@ namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
@@ -30,7 +31,8 @@ final class DispatchVariantsAction
      */
     public function execute(Media $media, array $variants, ?string $queue = null): void
     {
-        if ($variants === [] || ! $media->isImage()) {
+        // Only raster images get variants: an SVG is never decoded, so it never gets any.
+        if ($variants === [] || ! ImageDecodeGuard::decodes($media->mime_type)) {
             return;
         }
 

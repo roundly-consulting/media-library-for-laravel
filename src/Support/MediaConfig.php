@@ -62,6 +62,14 @@ final class MediaConfig
         return Config::oneOf('media.image_driver', ['imagick', 'gd'], 'imagick');
     }
 
+    /** The largest image (width x height) the package decodes (at least 1), or null for no cap. */
+    public static function maxImagePixels(): ?int
+    {
+        return self::unlessBlank(config('media.max_image_pixels')) === null
+            ? null
+            : Config::integer('media.max_image_pixels', 50_000_000, 1);
+    }
+
     /** Default jpg/webp quality, 1–100. */
     public static function variantQuality(): int
     {

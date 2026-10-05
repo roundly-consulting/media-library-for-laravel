@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 
 /**
@@ -44,6 +45,11 @@ final class RegenerateVariantsAction
      */
     private function select(Media $media, array $only, bool $force): array
     {
+        // Only raster images get variants: an SVG is never decoded, so it never gets any.
+        if (! ImageDecodeGuard::decodes($media->mime_type)) {
+            return [];
+        }
+
         $selected = [];
 
         foreach ($media->resolveVariants() as $variant) {

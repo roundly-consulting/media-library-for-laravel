@@ -21,6 +21,7 @@ use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
+use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
@@ -115,7 +116,8 @@ final class AddMediaAction
      */
     private function capturePlaceholders(Media $media, PendingFileAddState $state): void
     {
-        if (! $media->isImage()) {
+        // Only raster images are ever decoded (an SVG never is).
+        if (! ImageDecodeGuard::decodes($media->mime_type)) {
             return;
         }
 

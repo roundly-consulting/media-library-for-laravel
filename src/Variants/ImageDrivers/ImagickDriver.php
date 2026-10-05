@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Variants\ImageDrivers;
 
 use Imagick;
+use ImagickException;
 use ImagickPixel;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\RgbaImage;
+use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 
 /**
  * Imagick-backed image driver — the default whenever ext-imagick is loaded.
@@ -27,8 +29,12 @@ final class ImagickDriver implements ImageDriver
 
     public function load(string $path): ImageDriver
     {
+        // Type and pixel count are checked from the header first, and the sniffed type names the
+        // coder: left to choose, ImageMagick renders whatever it recognises — an SVG included.
+        $image = ImageDecodeGuard::inspect($path, fn (string $coder): ?array => $this->measure($coder, $path));
+
         $this->image = new Imagick;
-        $this->image->readImage($path);
+        $this->image->readImage($image->coder.':'.$path);
         $this->autoOrient();
         $this->format = strtolower($this->image->getImageFormat());
 
@@ -145,6 +151,24 @@ final class ImagickDriver implements ImageDriver
     public function name(): string
     {
         return 'imagick';
+    }
+
+    /**
+     * The size of an image PHP's header reader does not know (HEIC), read by a ping — headers
+     * only, no pixels decoded.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    private function measure(string $coder, string $path): ?array
+    {
+        try {
+            $probe = new Imagick;
+            $probe->pingImage($coder.':'.$path);
+
+            return [$probe->getImageWidth(), $probe->getImageHeight()];
+        } catch (ImagickException) {
+            return null;
+        }
     }
 
     /**
