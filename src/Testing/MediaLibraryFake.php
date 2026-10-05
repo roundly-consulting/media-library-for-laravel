@@ -13,11 +13,13 @@ use PHPUnit\Framework\Assert;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
+use RoundlyConsulting\MediaLibrary\Exceptions\DiskDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
@@ -34,11 +36,15 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
  *
  * Mutations still return something realistic: adds, attaches and copies return an unsaved
  * {@see Media} carrying the attributes the real call would have stored (a fresh uuid, owner,
- * bucket, disk, visibility, name); moves re-point the given media in memory; a bound draft is
- * the recorded (or stored) draft, re-pointed in memory. Bucket acceptance rules (mime allowlist,
- * size cap, image dimensions) still apply to adds and draft binds, and an unknown or expired
- * draft token still throws. Reads (`get()`, `find()`,
- * `bucket()`, `rulesFor()`) run against the database as usual.
+ * bucket, disk, variants disk, visibility, name); moves re-point the given media in memory; a
+ * bound draft is the recorded (or stored) draft, re-pointed in memory onto its bucket's disk and
+ * visibility.
+ *
+ * It refuses what the real manager refuses — it differs in side effects only: a bucket's
+ * acceptance rules (mime allowlist, size cap, image dimensions) apply to adds, draft binds,
+ * attaches, moves into another bucket, copies and replacements; a disk that is not configured
+ * throws {@see DiskDoesNotExist}; an unknown or expired draft token throws. Reads (`get()`,
+ * `find()`, `bucket()`, `rulesFor()`) run against the database as usual.
  *
  * @phpstan-type Call array{
  *     media: Media|null,
@@ -70,13 +76,16 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     private function recordStore(PendingFileAddState $state): Media
     {
-        $guard = $this->container->make(BucketGuard::class);
+        $guard = $this->guard();
         $bucket = $guard->bucketFor($state->owner, $state->bucket);
         $dimensions = str_starts_with((string) $state->file->mimeType, 'image/')
             ? ExifOrientation::displayDimensions($state->file->path)
             : null;
 
         $guard->ensureAccepts($bucket, $state->bucket, $state->file->mimeType, $state->file->size, $dimensions[0] ?? null, $dimensions[1] ?? null);
+
+        $disk = $this->disks()->resolveOriginalDisk($state->diskOverride, $bucket);
+        $variantsDisk = $this->disks()->resolveVariantsDisk($state->variantsDiskOverride, $bucket, $disk);
 
         $media = MediaModel::new();
         $media->uuid = (string) Str::uuid();
@@ -86,7 +95,8 @@ final class MediaLibraryFake extends MediaLibraryManager
         $media->mime_type = $state->file->mimeType;
         $media->extension = FileNames::extensionOf($media->file_name);
         $media->size = $state->file->size;
-        $media->disk = $state->diskOverride ?? $bucket?->getDisk() ?? MediaConfig::disk();
+        $media->disk = $disk;
+        $media->variants_disk = $variantsDisk === $disk ? null : $variantsDisk;
         $media->visibility = $state->visibility ?? $bucket?->getVisibility() ?? MediaConfig::defaultVisibility();
         $media->custom_properties = $state->customProperties;
         $media->generated_variants = [];
@@ -106,6 +116,8 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function attach(Media $media, ?Model $to = null, string $bucket = 'default'): Media
     {
+        $this->ensureAccepted($media, $to, $bucket);
+
         $attached = $this->replicaOf($media, $to, $bucket, $media->disk);
 
         $this->record('attached', media: $media, result: $attached, owner: $this->ownerKey($to), bucket: $bucket);
@@ -123,8 +135,19 @@ final class MediaLibraryFake extends MediaLibraryManager
             throw DraftMediaExpired::forToken($token);
         }
 
-        $guard = $this->container->make(BucketGuard::class);
-        $guard->ensureAcceptsMedia($guard->bucketFor($to, $bucket), $bucket, $draft);
+        $target = $this->guard()->bucketFor($to, $bucket);
+        $this->guard()->ensureAcceptsMedia($target, $bucket, $draft);
+
+        // Where the real bind puts it: the bucket's disk and visibility.
+        if ($target !== null) {
+            $disk = $target->getDisk() ?? $draft->disk;
+            $this->disks()->ensureDiskExists($disk);
+            $variantsDisk = $this->disks()->resolveVariantsDisk(null, $target, $disk);
+
+            $draft->disk = $disk;
+            $draft->variants_disk = $variantsDisk === $disk ? null : $variantsDisk;
+            $draft->visibility = $target->getVisibility() ?? $draft->visibility;
+        }
 
         $this->rehome($draft, $to, $bucket);
         $draft->draft_token = null;
@@ -137,6 +160,12 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function move(Media $media, ?Model $to = null, string $bucket = 'default', ?string $disk = null): Media
     {
+        $this->disks()->ensureDiskExists($disk ?? $media->disk);
+
+        if ($media->bucket_name !== $bucket || $media->model_type !== $to?->getMorphClass() || (string) $media->model_id !== (string) $to?->getKey()) {
+            $this->ensureAccepted($media, $to, $bucket);
+        }
+
         $this->record('moved', media: $media, owner: $this->ownerKey($to), bucket: $bucket, disk: $disk ?? $media->disk);
 
         $this->rehome($media, $to, $bucket);
@@ -147,6 +176,8 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function moveToDisk(Media $media, string $disk): Media
     {
+        $this->disks()->ensureDiskExists($disk);
+
         $this->record('moved', media: $media, owner: $this->ownerKeyOf($media), bucket: $media->bucket_name, disk: $disk);
 
         $media->disk = $disk;
@@ -156,6 +187,8 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function moveVariantsToDisk(Media $media, string $disk): Media
     {
+        $this->disks()->ensureDiskExists($disk);
+
         $this->record('variantsMoved', media: $media, disk: $disk);
 
         $media->variants_disk = $disk === $media->disk ? null : $disk;
@@ -165,6 +198,9 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function copy(Media $media, ?Model $to = null, string $bucket = 'default', ?string $disk = null): Media
     {
+        $this->disks()->ensureDiskExists($disk ?? $media->disk);
+        $this->ensureAccepted($media, $to, $bucket);
+
         $copy = $this->replicaOf($media, $to, $bucket, $disk ?? $media->disk);
 
         $this->record('copied', media: $media, result: $copy, owner: $this->ownerKey($to), bucket: $bucket, disk: $copy->disk);
@@ -174,6 +210,27 @@ final class MediaLibraryFake extends MediaLibraryManager
 
     public function replace(Media $media, string|UploadedFile $file): Media
     {
+        $source = $this->files->fromFile($file);
+
+        try {
+            $dimensions = str_starts_with((string) $source->mimeType, 'image/')
+                ? ExifOrientation::displayDimensions($source->path)
+                : null;
+
+            $this->guard()->ensureAccepts(
+                $this->guard()->bucketFor($media->model, $media->bucket_name),
+                $media->bucket_name,
+                $source->mimeType,
+                $source->size,
+                $dimensions[0] ?? null,
+                $dimensions[1] ?? null,
+            );
+        } finally {
+            if ($source->isTemporary && is_file($source->path)) {
+                @unlink($source->path);
+            }
+        }
+
         $this->record('replaced', media: $media);
 
         return $media;
@@ -410,6 +467,22 @@ final class MediaLibraryFake extends MediaLibraryManager
         }
 
         return null;
+    }
+
+    /** The real manager's acceptance check for media entering `$to`'s `$bucket`. */
+    private function ensureAccepted(Media $media, ?Model $to, string $bucket): void
+    {
+        $this->guard()->ensureAcceptsMedia($this->guard()->bucketFor($to, $bucket), $bucket, $media);
+    }
+
+    private function guard(): BucketGuard
+    {
+        return $this->container->make(BucketGuard::class);
+    }
+
+    private function disks(): DiskResolver
+    {
+        return $this->container->make(DiskResolver::class);
     }
 
     private function replicaOf(Media $media, ?Model $to, string $bucket, string $disk): Media

@@ -32,14 +32,14 @@ it('swaps a recording fake into the facade and the container', function (): void
         ->and(MediaLibrary::getFacadeRoot())->toBe($fake);
 });
 
-it('performs nothing: no file, row, job or event — and needs no real disk', function (): void {
+it('performs nothing: no file, row, job or event', function (): void {
     $user = fakeUser();
     Event::fake();
     Bus::fake();
     MediaLibrary::fake();
 
     $owned = $user->addMedia(__DIR__.'/../files/wide.png')->usingName('Wide')->toMediaBucket('photos');
-    $global = MediaLibrary::add(FAKE_PIXEL)->useDisk('not-a-configured-disk')->withVisibility('private')->toBucket('brand');
+    $global = MediaLibrary::add(FAKE_PIXEL)->useDisk('cold')->withVisibility('private')->toBucket('brand');
 
     expect(Media::query()->count())->toBe(0)
         ->and(Storage::disk('public')->allFiles())->toBe([])
@@ -52,7 +52,8 @@ it('performs nothing: no file, row, job or event — and needs no real disk', fu
         ->and($owned->bucket_name)->toBe('photos')
         ->and($owned->disk)->toBe('public')
         ->and($global->model_type)->toBeNull()
-        ->and($global->disk)->toBe('not-a-configured-disk')
+        ->and($global->disk)->toBe('cold')
+        ->and(Storage::disk('cold')->allFiles())->toBe([])
         ->and($global->visibility)->toBe('private');
 
     Event::assertNothingDispatched();
