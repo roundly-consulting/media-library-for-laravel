@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Jobs;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -18,8 +18,12 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
  * model) so the payload stays small and serializable, then re-resolves the variant definitions
  * from the owning model/bucket when it runs — through `MediaLibrary::regenerate()`, so a faked
  * manager records it.
+ *
+ * It is queued only once the surrounding transaction commits — a host's included, whatever the
+ * connection's `after_commit` says: pushed earlier, a worker could look the row up before it
+ * exists and silently drop the variants. A rollback discards it.
  */
-final class GenerateVariantsJob implements ShouldQueue
+final class GenerateVariantsJob implements ShouldQueueAfterCommit
 {
     use Dispatchable;
     use InteractsWithQueue;

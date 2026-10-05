@@ -2,10 +2,13 @@
 
 declare(strict_types=1);
 
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
+use RoundlyConsulting\MediaLibrary\Jobs\GenerateVariantsJob;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\EdgeCaseUser;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
@@ -125,4 +128,43 @@ it('spares a variant re-rendered onto the path of the one it replaces once the h
     expect($bound->visibility)->toBe('private')
         ->and($bound->getPath('thumb'))->toBe($thumb);
     Storage::disk('public')->assertExists($thumb);
+});
+
+it('queues the variants job only once the host transaction commits', function (): void {
+    config()->set('queue.default', 'sync');
+    config()->set('queue.connections.sync.after_commit', false);
+
+    $levels = [];
+    Queue::before(static function (JobProcessing $event) use (&$levels): void {
+        $levels[] = DB::transactionLevel();
+    });
+
+    $user = TestUser::query()->create(['name' => 'Ada']);
+
+    $media = DB::transaction(function () use ($user): Media {
+        $media = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('photos');
+
+        // A worker picking the job up now would not see the row yet.
+        expect(Media::query()->findOrFail($media->id)->hasGeneratedVariant('display'))->toBeFalse();
+
+        return $media;
+    });
+
+    expect($levels)->toBe([0])
+        ->and(Media::query()->findOrFail($media->id)->hasGeneratedVariant('display'))->toBeTrue();
+});
+
+it('drops the variants job when the host transaction rolls back', function (): void {
+    config()->set('queue.default', 'sync');
+
+    $ran = [];
+    Queue::before(static function (JobProcessing $event) use (&$ran): void {
+        $ran[] = $event->job->resolveName();
+    });
+
+    $user = TestUser::query()->create(['name' => 'Ada']);
+
+    insideRolledBackTransaction(fn () => $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('photos'));
+
+    expect($ran)->not->toContain(GenerateVariantsJob::class);
 });
