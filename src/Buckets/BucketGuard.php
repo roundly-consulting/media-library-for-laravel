@@ -68,7 +68,8 @@ final class BucketGuard
             throw FileUnacceptableForBucket::tooLarge($size, $maxFileSize, $bucketName);
         }
 
-        if ($bucket !== null && str_starts_with((string) $mimeType, 'image/') && ! $this->fitsDimensions($bucket, $width, $height)) {
+        if ($bucket !== null && str_starts_with((string) $mimeType, 'image/')
+            && ! self::fitsDimensions($bucket->getMinDimensions(), $bucket->getMaxDimensions(), $width, $height)) {
             throw FileUnacceptableForBucket::dimensions($width, $height, $bucketName);
         }
     }
@@ -113,11 +114,15 @@ final class BucketGuard
         });
     }
 
-    private function fitsDimensions(MediaBucket $bucket, ?int $width, ?int $height): bool
+    /**
+     * Whether an image of `$width` x `$height` (as displayed) fits the bounds; an unreadable size
+     * never fits a bounded box. Shared with the derived `media_dimensions` validation rule.
+     *
+     * @param  array{0: int, 1: int}|null  $min
+     * @param  array{0: int, 1: int}|null  $max
+     */
+    public static function fitsDimensions(?array $min, ?array $max, ?int $width, ?int $height): bool
     {
-        $min = $bucket->getMinDimensions();
-        $max = $bucket->getMaxDimensions();
-
         if ($min === null && $max === null) {
             return true;
         }

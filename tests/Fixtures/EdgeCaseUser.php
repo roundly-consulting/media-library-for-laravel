@@ -32,6 +32,10 @@ final class EdgeCaseUser extends Model implements HasMedia
     {
         $this->addMediaBucket('single')->useDisk('public')->singleFile();
 
+        // Constraints whose derived validation rules must agree with the guard.
+        $this->addMediaBucket('tiny')->useDisk('public')->maxFileSize(1000);
+        $this->addMediaBucket('portrait')->useDisk('public')->maxDimensions(32, 64);
+
         // Two variants rendered on the spot; the second one's disk refuses it.
         $this->addMediaBucket('half-broken')->useDisk('public')->registerVariants(function (VariantRegistrar $v): void {
             $v->add('thumb')->width(8)->format('png')->nonQueued();

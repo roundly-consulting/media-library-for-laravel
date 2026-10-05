@@ -5,18 +5,25 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Buckets;
 
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
+use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
+use Symfony\Component\HttpFoundation\File\File;
 
 /**
  * Derives a Laravel validation rules array from a media bucket's declared constraints
  * (accepted mime types, max file size, min/max dimensions) — a single source of truth so the
- * rules follow whenever the bucket definition changes (§6.8).
+ * rules follow whenever the bucket definition changes (§6.8). The rules never accept a file the
+ * add would then refuse: the size is the exact byte cap, and dimensions are checked by the
+ * package's own `media_dimensions` rule, the way {@see BucketGuard} measures them.
  *
  * Only constraints the bucket actually declares emit a rule; undeclared constraints are omitted —
  * except the size cap, which falls back to the package-level `media.max_file_size` default.
  */
 final class BucketValidationRules
 {
+    /** The rule a bucket's dimension bounds derive to — registered by the service provider. */
+    public const string DIMENSIONS_RULE = 'media_dimensions';
+
     /**
      * Build the rules array for `$bucket` on `$modelClass`.
      *
@@ -46,8 +53,9 @@ final class BucketValidationRules
         $maxFileSize = self::maxFileSizeFor($bucket);
 
         if ($maxFileSize !== null) {
-            // Laravel's `max` rule on files is expressed in kilobytes.
-            $rules[] = 'max:'.(int) ceil($maxFileSize / 1024);
+            // Laravel's `max` rule on files is in kilobytes, compared as a decimal: the exact
+            // figure, never rounded up past the byte cap the guard enforces.
+            $rules[] = 'max:'.self::kilobytes($maxFileSize);
         }
 
         if ($bucket === null) {
@@ -103,7 +111,58 @@ final class BucketValidationRules
             return null;
         }
 
-        return 'dimensions:'.implode(',', $constraints);
+        return self::DIMENSIONS_RULE.':'.implode(',', $constraints);
+    }
+
+    /**
+     * The `media_dimensions` rule: the size a viewer sees (EXIF orientation applied) within the
+     * bounds, exactly as the guard measures it. Unlike Laravel's `dimensions`, an image whose size
+     * cannot be read (an SVG) fails; a file that is no image passes, as the guard lets it in.
+     *
+     * @internal registered by the service provider
+     *
+     * @param  array<int, string>  $parameters  `min_width=…`, `min_height=…`, `max_width=…`, `max_height=…`
+     */
+    public static function passesDimensions(mixed $value, array $parameters): bool
+    {
+        $path = $value instanceof File ? $value->getRealPath() : false;
+
+        if ($path === false || ! is_file($path)) {
+            return false;
+        }
+
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = $finfo === false ? false : finfo_file($finfo, $path);
+
+        if ($finfo !== false) {
+            finfo_close($finfo);
+        }
+
+        if (! str_starts_with((string) $mimeType, 'image/')) {
+            return true;
+        }
+
+        $bounds = [];
+
+        foreach ($parameters as $parameter) {
+            [$name, $bound] = array_pad(explode('=', $parameter, 2), 2, '0');
+            $bounds[$name] = (int) $bound;
+        }
+
+        $dimensions = ExifOrientation::displayDimensions($path);
+
+        return BucketGuard::fitsDimensions(
+            isset($bounds['min_width']) || isset($bounds['min_height']) ? [$bounds['min_width'] ?? 0, $bounds['min_height'] ?? 0] : null,
+            isset($bounds['max_width']) || isset($bounds['max_height']) ? [$bounds['max_width'] ?? PHP_INT_MAX, $bounds['max_height'] ?? PHP_INT_MAX] : null,
+            $dimensions[0] ?? null,
+            $dimensions[1] ?? null,
+        );
+    }
+
+    /** `$bytes` in kilobytes, exactly (a division by 1024 is exact in binary), without trailing zeros. */
+    private static function kilobytes(int $bytes): string
+    {
+        return rtrim(rtrim(sprintf('%.10F', $bytes / 1024), '0'), '.');
     }
 
     /**

@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary;
 
 use Closure;
+use Illuminate\Contracts\Validation\Factory as ValidationFactory;
+use Illuminate\Validation\Validator;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
 use RoundlyConsulting\MediaLibrary\Commands\ClearCommand;
 use RoundlyConsulting\MediaLibrary\Commands\PruneDraftsCommand;
@@ -68,6 +71,22 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
         parent::boot();
 
         MediaModel::class()::observe(MediaObserver::class);
+
+        $this->callAfterResolving('validator', static function (ValidationFactory $validator): void {
+            $validator->extend(
+                BucketValidationRules::DIMENSIONS_RULE,
+                static fn (string $attribute, mixed $value, array $parameters): bool => BucketValidationRules::passesDimensions($value, $parameters),
+            );
+
+            // Without a `validation.media_dimensions` line of its own, the application's
+            // `validation.dimensions` message explains the failure.
+            $validator->replacer(
+                BucketValidationRules::DIMENSIONS_RULE,
+                static fn (string $message, string $attribute, string $rule, array $parameters, Validator $validator): string => $message === 'validation.'.BucketValidationRules::DIMENSIONS_RULE
+                    ? str_replace(':attribute', $validator->getDisplayableAttribute($attribute), (string) $validator->getTranslator()->get('validation.dimensions'))
+                    : $message,
+            );
+        });
     }
 
     /**

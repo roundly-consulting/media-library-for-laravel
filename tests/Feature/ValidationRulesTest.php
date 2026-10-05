@@ -17,7 +17,7 @@ it('derives mimes, size, and dimension rules from the bucket', function (): void
         'file',
         'mimetypes:image/jpeg,image/png',
         'max:5120',
-        'dimensions:min_width=100,min_height=100,max_width=4096,max_height=4096',
+        'media_dimensions:min_width=100,min_height=100,max_width=4096,max_height=4096',
     ]);
 });
 
@@ -80,5 +80,5 @@ it('changes the rules when the bucket definition changes', function (): void {
 
     expect($relaxed)->not->toBe($strict)
         ->and($strict)->toContain('max:2048')
-        ->and($strict)->toContain('dimensions:max_width=2000,max_height=1500');
+        ->and($strict)->toContain('media_dimensions:max_width=2000,max_height=1500');
 });

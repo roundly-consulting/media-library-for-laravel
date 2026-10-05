@@ -138,6 +138,8 @@ arch('src uses only allowed namespaces')
         'RoundlyConsulting\PackageToolkit',
         'Illuminate',
         'Symfony\Component\HttpFoundation\StreamedResponse',
+        // The file a validation rule is handed (Laravel's UploadedFile extends it).
+        'Symfony\Component\HttpFoundation\File\File',
         'Symfony\Component\HttpKernel\Exception\NotFoundHttpException',
         // Laravel's own mime/extension map (illuminate/http and filesystem are built on it).
         'Symfony\Component\Mime\MimeTypes',
