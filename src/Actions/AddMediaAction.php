@@ -37,6 +37,7 @@ use Throwable;
  *
  * The bucket's mime allowlist, size cap and image dimensions are checked before anything is
  * written; a `singleFile()` bucket's previous media is removed only once the new one is stored.
+ * Should a host's transaction roll the new row back, the files this add wrote are deleted again.
  */
 final class AddMediaAction
 {
@@ -119,6 +120,13 @@ final class AddMediaAction
         if ($shared && ! Storage::disk($disk)->exists($media->getPath())) {
             $this->writeOriginal($media, $state, $disk, $visibility);
             $media->save();
+            $shared = false;
+        }
+
+        // A host's transaction can still roll the row back. A shared original stays: its other
+        // referrer still points at it.
+        if (! $shared) {
+            $this->files->deleteAfterRollBack($media, $disk, $media->getPath());
         }
 
         if (! $state->draft && $state->owner instanceof Model) {
@@ -128,6 +136,12 @@ final class AddMediaAction
         event(new MediaHasBeenAdded($media));
 
         $this->generateVariantsFor($media, $bucket, $state);
+
+        // Only what was rendered just now: inside a transaction, queued variants are dispatched
+        // once it commits, so a rollback never leaves one behind.
+        foreach (array_keys($media->generatedVariants()) as $variant) {
+            $this->files->deleteAfterRollBack($media, $media->diskFor($variant), $media->getPath($variant));
+        }
 
         return $media;
     }

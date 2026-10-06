@@ -24,6 +24,7 @@ use RoundlyConsulting\MediaLibrary\Support\DefaultPathGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use RoundlyConsulting\MediaLibrary\Support\RollbackCallbacks;
 use RoundlyConsulting\MediaLibrary\Variants\ImageDrivers\ImageDriverFactory;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Package;
@@ -55,6 +56,9 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
 
         $this->app->singleton(MediaLibraryManager::class);
         $this->app->alias(MediaLibraryManager::class, 'media');
+
+        // One instance: on Laravel < 12.32 it holds rollback callbacks between transaction events.
+        $this->app->singleton(RollbackCallbacks::class);
 
         // Absent => the packaged default; anything that is not the contract throws on resolve.
         $this->bindFromConfig(PathGenerator::class, 'media.path_generator', DefaultPathGenerator::class);

@@ -6,6 +6,13 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Fixed
+
+- An add inside your own `DB::transaction()` no longer leaves its files behind when that transaction
+  rolls back. The original and the variants rendered during the add are deleted again; an original
+  shared with an existing media (deduplicated) is kept. A savepoint rollback cleans up only the adds
+  inside it, and a commit keeps everything.
+
 ## 1.1.0 - 2026-10-05
 
 ### Added

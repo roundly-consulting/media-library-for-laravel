@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Support;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use Throwable;
 
 /**
  * The reference count behind shared originals, and the rules for touching stored files safely.
@@ -28,6 +30,7 @@ final class StoredFiles
 {
     public function __construct(
         private readonly PathGenerator $paths,
+        private readonly RollbackCallbacks $rollbacks,
     ) {}
 
     /** Whether any row other than `$exceptKey` — soft-deleted ones included — points at the file. */
@@ -103,6 +106,27 @@ final class StoredFiles
             }
 
             Storage::disk($disk)->delete($path);
+        });
+    }
+
+    /**
+     * Delete a file just written for `$media` should the transaction that saved its row roll the
+     * row back — nothing would point at the file any more. Outside a transaction there is nothing
+     * to undo, and a commit keeps the file.
+     *
+     * The file is kept when some row stores it as its original by then. A failing delete is
+     * reported, never thrown: it runs inside the rollback and must not mask what caused it.
+     */
+    public function deleteAfterRollBack(Media $media, string $disk, string $path): void
+    {
+        $this->rollbacks->register($media->getConnection(), function () use ($disk, $path): void {
+            try {
+                if (! $this->isReferencedByOthers($disk, $path, null)) {
+                    Storage::disk($disk)->delete($path);
+                }
+            } catch (Throwable $exception) {
+                app(ExceptionHandler::class)->report($exception);
+            }
         });
     }
 
