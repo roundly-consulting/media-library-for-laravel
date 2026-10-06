@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Support;
 
 use Closure;
-use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Database\Events\TransactionRolledBack;
@@ -16,32 +15,21 @@ use Illuminate\Database\Events\TransactionRolledBack;
  * outermost transaction commits, the callback is dropped. With no transaction open, nothing is
  * registered.
  *
- * Laravel tracks this itself from 12.32 on (`Connection::afterRollBack()`), and that hook is used
- * where it exists. Earlier 12.x releases have none, so there the same bookkeeping follows the
- * connection's `TransactionCommitted` / `TransactionRolledBack` events.
+ * Laravel's own `Connection::afterRollBack()` is not used: before 13.21 (all of 12.x included) it
+ * loses the callbacks of a committed savepoint when the outer transaction rolls back. The
+ * connection's `TransactionCommitted` / `TransactionRolledBack` events (wired in the service
+ * provider) drive the same bookkeeping on every supported version.
  *
  * @internal
  */
 final class RollbackCallbacks
 {
     /**
-     * What the event fallback still holds, per connection: each callback with the transaction
-     * level it belongs to.
+     * Callbacks per connection, each with the transaction level it belongs to.
      *
      * @var array<string, list<array{int, Closure(): void}>>
      */
     private array $pending = [];
-
-    private bool $listening = false;
-
-    /**
-     * @param  bool|null  $frameworkHook  whether to use Laravel's own `afterRollBack()`; `null`
-     *                                    uses it whenever the connection has it
-     */
-    public function __construct(
-        private readonly Dispatcher $events,
-        private readonly ?bool $frameworkHook = null,
-    ) {}
 
     /**
      * @param  Closure(): void  $callback
@@ -54,45 +42,18 @@ final class RollbackCallbacks
             return;
         }
 
-        if ($this->frameworkHook ?? self::hasFrameworkHook($connection)) {
-            $connection->afterRollBack($callback);
-
-            return;
-        }
-
-        $this->listen();
-
         $this->pending[(string) $connection->getName()][] = [$level, $callback];
     }
 
-    private static function hasFrameworkHook(object $connection): bool
-    {
-        return method_exists($connection, 'afterRollBack');
-    }
-
-    private function listen(): void
-    {
-        if ($this->listening) {
-            return;
-        }
-
-        $this->listening = true;
-
-        $this->events->listen(TransactionCommitted::class, function (TransactionCommitted $event): void {
-            $this->committed($event->connectionName, $event->connection->transactionLevel());
-        });
-
-        $this->events->listen(TransactionRolledBack::class, function (TransactionRolledBack $event): void {
-            $this->rolledBack($event->connectionName, $event->connection->transactionLevel());
-        });
-    }
-
     /**
-     * A savepoint's commit hands its callbacks to the transaction it is part of — a later
-     * rollback of a sibling savepoint must not run them. The outermost commit drops them.
+     * A savepoint's commit hands its callbacks to the transaction it is part of, so a later
+     * rollback of a sibling savepoint leaves them alone. The outermost commit drops them.
      */
-    private function committed(string $connection, int $level): void
+    public function committed(TransactionCommitted $event): void
     {
+        $connection = $event->connectionName;
+        $level = $event->connection->transactionLevel();
+
         if ($level === 0) {
             unset($this->pending[$connection]);
 
@@ -107,8 +68,11 @@ final class RollbackCallbacks
     }
 
     /** Run the callbacks of every level the rollback undid. */
-    private function rolledBack(string $connection, int $level): void
+    public function rolledBack(TransactionRolledBack $event): void
     {
+        $connection = $event->connectionName;
+        $level = $event->connection->transactionLevel();
+
         $due = [];
         $kept = [];
 
@@ -120,7 +84,11 @@ final class RollbackCallbacks
             }
         }
 
-        $this->pending[$connection] = $kept;
+        if ($kept === []) {
+            unset($this->pending[$connection]);
+        } else {
+            $this->pending[$connection] = $kept;
+        }
 
         foreach ($due as $callback) {
             $callback();

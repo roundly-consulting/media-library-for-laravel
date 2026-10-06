@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary;
 
 use Closure;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
+use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Validation\Validator;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
@@ -57,7 +60,7 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
         $this->app->singleton(MediaLibraryManager::class);
         $this->app->alias(MediaLibraryManager::class, 'media');
 
-        // One instance: on Laravel < 12.32 it holds rollback callbacks between transaction events.
+        // One instance: it holds an add's rollback cleanup until its transaction is decided.
         $this->app->singleton(RollbackCallbacks::class);
 
         // Absent => the packaged default; anything that is not the contract throws on resolve.
@@ -75,6 +78,11 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
         parent::boot();
 
         MediaModel::class()::observe(MediaObserver::class);
+
+        // Resolved per event, so a long-lived dispatcher (Octane) reaches the current app's instance.
+        $events = $this->app->make(Dispatcher::class);
+        $events->listen(TransactionCommitted::class, [RollbackCallbacks::class, 'committed']);
+        $events->listen(TransactionRolledBack::class, [RollbackCallbacks::class, 'rolledBack']);
 
         $this->callAfterResolving('validator', static function (ValidationFactory $validator): void {
             $validator->extend(

@@ -176,19 +176,9 @@ it('drops the variants job when the host transaction rolls back', function (): v
  * An add writes its original and its synchronous variants before the host's transaction is
  * decided. When the host rolls the new row back, nothing points at those files any more.
  *
- * Each case runs twice: through Laravel's own `afterRollBack()` (12.32+, what CI installs on both
- * majors) and through the transaction-event fallback that older 12.x releases get.
+ * The committed-savepoint case is the one Laravel's own `afterRollBack()` gets wrong before 13.21
+ * (all of 12.x included), which is why the package tracks transaction events itself.
  */
-dataset('rollback hooks', [
-    'afterRollBack()' => [null],
-    'transaction events' => [false],
-]);
-
-/** Make adds use the given rollback hook: `null` detects Laravel's own, `false` forces the fallback. */
-function useRollbackHook(?bool $frameworkHook): void
-{
-    app()->instance(RollbackCallbacks::class, new RollbackCallbacks(app('events'), $frameworkHook));
-}
 
 /**
  * Every file on the given disks, as `disk:path`.
@@ -233,9 +223,7 @@ function filesOfMedia(Media ...$media): array
     return $files;
 }
 
-it('deletes the files of an add the host rolls back, variants included', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('deletes the files of an add the host rolls back, variants included', function (): void {
     $user = TestUser::query()->create(['name' => 'Ada']);
 
     insideRolledBackTransaction(function () use ($user): void {
@@ -251,11 +239,9 @@ it('deletes the files of an add the host rolls back, variants included', functio
     expect(Media::query()->count())->toBe(0)
         ->and(Storage::disk('public')->allFiles())->toBe([])
         ->and(Storage::disk('hot')->allFiles())->toBe([]);
-})->with('rollback hooks');
+});
 
-it('keeps the shared original of a deduplicated add the host rolls back', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('keeps the shared original of a deduplicated add the host rolls back', function (): void {
     $user = TestUser::query()->create(['name' => 'Ada']);
     $canonical = $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('hero');
     $before = filesOnDisks('public', 'hot');
@@ -272,11 +258,9 @@ it('keeps the shared original of a deduplicated add the host rolls back', functi
     expect(Media::query()->count())->toBe(1)
         ->and(filesOnDisks('public', 'hot'))->toBe($before);
     Storage::disk('public')->assertExists($canonical->getPath());
-})->with('rollback hooks');
+});
 
-it('keeps the files of an add the host commits, queued variants included', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('keeps the files of an add the host commits, queued variants included', function (): void {
     config()->set('queue.default', 'sync');
 
     $user = TestUser::query()->create(['name' => 'Ada']);
@@ -288,11 +272,9 @@ it('keeps the files of an add the host commits, queued variants included', funct
     expect($fresh->hasGeneratedVariant('thumb'))->toBeTrue()
         ->and($fresh->hasGeneratedVariant('display'))->toBeTrue()
         ->and(filesOnDisks('public', 'hot'))->toBe(filesOfMedia($fresh));
-})->with('rollback hooks');
+});
 
-it('keeps the files of a committed add when a later transaction rolls back', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('keeps the files of a committed add when a later transaction rolls back', function (): void {
     $user = TestUser::query()->create(['name' => 'Ada']);
     $media = DB::transaction(fn (): Media => $user->addMedia(__DIR__.'/../files/wide.png')->toMediaBucket('hero'));
 
@@ -300,11 +282,9 @@ it('keeps the files of a committed add when a later transaction rolls back', fun
 
     expect(filesOnDisks('public', 'hot'))->toBe(filesOfMedia(Media::query()->findOrFail($media->id)))
         ->and(filesOnDisks('public', 'hot'))->toHaveCount(3);
-})->with('rollback hooks');
+});
 
-it('leaves no file of an add with queued variants the host rolls back', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('leaves no file of an add with queued variants the host rolls back', function (): void {
     config()->set('queue.default', 'sync');
 
     $user = TestUser::query()->create(['name' => 'Ada']);
@@ -313,11 +293,9 @@ it('leaves no file of an add with queued variants the host rolls back', function
 
     // The sync `thumb` was written and is gone again; the queued `display` was never written.
     expect(filesOnDisks('public', 'hot'))->toBe([]);
-})->with('rollback hooks');
+});
 
-it('deletes only the files of a savepoint the host rolls back inside a committed transaction', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('deletes only the files of a savepoint the host rolls back inside a committed transaction', function (): void {
     $user = TestUser::query()->create(['name' => 'Ada']);
 
     [$outer, $savepoint] = DB::transaction(function () use ($user): array {
@@ -336,11 +314,9 @@ it('deletes only the files of a savepoint the host rolls back inside a committed
             Media::query()->findOrFail($outer->id),
             Media::query()->findOrFail($savepoint->id),
         ));
-})->with('rollback hooks');
+});
 
-it('deletes the files of a committed savepoint once the outer transaction rolls back', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('deletes the files of a committed savepoint once the outer transaction rolls back', function (): void {
     $user = TestUser::query()->create(['name' => 'Ada']);
 
     insideRolledBackTransaction(function () use ($user): void {
@@ -348,10 +324,9 @@ it('deletes the files of a committed savepoint once the outer transaction rolls 
     });
 
     expect(filesOnDisks('public', 'hot'))->toBe([]);
-})->with('rollback hooks');
+});
 
-it('reports a delete that fails during the rollback, never masking the host error', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
+it('reports a delete that fails during the rollback, never masking the host error', function (): void {
     Exceptions::fake();
 
     $user = TestUser::query()->create(['name' => 'Ada']);
@@ -367,11 +342,9 @@ it('reports a delete that fails during the rollback, never masking the host erro
     }))->toThrow(RuntimeException::class, 'the host gives up');
 
     Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'the disk is down');
-})->with('rollback hooks');
+});
 
-it('registers nothing outside a transaction', function (?bool $frameworkHook): void {
-    useRollbackHook($frameworkHook);
-
+it('registers nothing outside a transaction', function (): void {
     $ran = false;
     app(RollbackCallbacks::class)->register(DB::connection(), function () use (&$ran): void {
         $ran = true;
@@ -380,4 +353,4 @@ it('registers nothing outside a transaction', function (?bool $frameworkHook): v
     insideRolledBackTransaction(fn () => null);
 
     expect($ran)->toBeFalse();
-})->with('rollback hooks');
+});
