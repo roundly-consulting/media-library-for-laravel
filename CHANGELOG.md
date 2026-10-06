@@ -6,6 +6,8 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+## 1.1.1 - 2026-10-06
+
 ### Fixed
 
 - An add inside your own `DB::transaction()` no longer leaves its files behind when that transaction
