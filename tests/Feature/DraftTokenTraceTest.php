@@ -79,6 +79,17 @@ it('keeps a live draft token out of every frame of a refused manager bind', func
         ->and($redacted)->toBeGreaterThan(0);
 });
 
+it('keeps a live draft token out of every frame of a refused facade bind', function (): void {
+    $token = ($this->refusedToken)();
+    $user = $this->user;
+
+    [$class, $frames, $redacted] = ($this->exposed)(fn () => MediaLibrary::bindDraft($token, $user, 'avatar'));
+
+    expect($class)->toBe(FileUnacceptableForBucket::class)
+        ->and($frames)->not->toContain($token)
+        ->and($redacted)->toBeGreaterThan(0);
+});
+
 it('keeps a live draft token out of every frame of a refused handle bind', function (): void {
     $token = ($this->refusedToken)();
     $user = $this->user;

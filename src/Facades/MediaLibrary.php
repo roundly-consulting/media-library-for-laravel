@@ -14,6 +14,7 @@ use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
+use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
 
 /**
  * @method static PendingFileAdd add(string|UploadedFile $file)
@@ -44,6 +45,8 @@ use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
  */
 final class MediaLibrary extends Facade
 {
+    use RedactsSensitiveArguments;
+
     /**
      * Swap the manager for a recording fake: nothing touches a disk, the database, the queue or
      * the event bus, and every call — through this facade, an injected manager, a `for()` handle,

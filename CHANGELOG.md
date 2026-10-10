@@ -16,6 +16,11 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   `zend.exception_ignore_args` is off, a bind the bucket refused (the draft stays unbound, so its
   token stays usable) left the token in those frames, where error trackers that collect frame
   arguments could show it.
+- Flat facade calls (`MediaLibrary::bindDraft($token, $model)`) no longer leave
+  `#[SensitiveParameter]` arguments in the facade's stack frame: the `MediaLibrary` facade uses
+  package-toolkit's `RedactsSensitiveArguments`, which hides exactly the arguments the
+  `MediaLibraryManager` method marks, while every other argument stays visible. Requires
+  package-toolkit `^1.3`.
 
 ## 1.1.1 - 2026-10-06
 

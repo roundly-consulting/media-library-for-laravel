@@ -29,7 +29,8 @@ it('documents its root, is fakeable, and reaches every host-facing action', func
     expect(MediaLibrary::class)
         ->toDocumentItsRoot()
         ->toBeFakeable()
-        ->toReachEveryAction(__DIR__.'/../../src/Actions');
+        ->toReachEveryAction(__DIR__.'/../../src/Actions')
+        ->toRedactSensitiveArguments(methods: 1);
 });
 
 // --- for($model): owner-scoped adds ---
