@@ -6,6 +6,17 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Security
+
+- A draft token passed to `MediaLibrary::bindDraft()`, `MediaLibrary::for($model)->bindDraft()` or
+  `$model->attachDraftMedia()` no longer sits in the stack frames of an exception thrown while
+  binding it. The token parameter is now `#[SensitiveParameter]` along the whole bind path: the
+  manager, the model handle, the `InteractsWithMedia` trait, `BindDraftMediaAction`, the
+  `DraftMediaNotFound` / `DraftMediaExpired` factories and `MediaLibraryFake`. Before, wherever
+  `zend.exception_ignore_args` is off, a bind the bucket refused (the draft stays unbound, so its
+  token stays usable) left the token in those frames, where error trackers that collect frame
+  arguments could show it.
+
 ## 1.1.1 - 2026-10-06
 
 ### Fixed

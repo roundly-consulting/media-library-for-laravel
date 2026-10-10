@@ -20,6 +20,7 @@ use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use SensitiveParameter;
 
 /**
  * The media of one owning model — `MediaLibrary::for($post)`.
@@ -82,7 +83,7 @@ final readonly class ModelMedia
     }
 
     /** Bind a previously-uploaded draft (by its token) to this model's bucket. */
-    public function bindDraft(string $token, string $bucket = 'default'): Media
+    public function bindDraft(#[SensitiveParameter] string $token, string $bucket = 'default'): Media
     {
         return $this->manager->bindDraft($token, $this->model, $bucket);
     }

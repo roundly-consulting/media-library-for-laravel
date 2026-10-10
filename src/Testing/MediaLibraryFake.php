@@ -24,6 +24,7 @@ use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use SensitiveParameter;
 
 /**
  * The recording stand-in {@see MediaLibrary::fake()} swaps in.
@@ -131,7 +132,7 @@ final class MediaLibraryFake extends MediaLibraryManager
         return $attached;
     }
 
-    public function bindDraft(string $token, Model $to, string $bucket = 'default'): Media
+    public function bindDraft(#[SensitiveParameter] string $token, Model $to, string $bucket = 'default'): Media
     {
         $this->guard()->ensureSavedOwner($to);
 
@@ -468,7 +469,7 @@ final class MediaLibraryFake extends MediaLibraryManager
     }
 
     /** The unbound draft this fake stored under `$token`, if any. */
-    private function recordedDraft(string $token): ?Media
+    private function recordedDraft(#[SensitiveParameter] string $token): ?Media
     {
         foreach ($this->calls['added'] ?? [] as $call) {
             if ($call['result']?->draft_token === $token) {

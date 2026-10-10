@@ -29,6 +29,7 @@ use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
+use SensitiveParameter;
 
 /**
  * The media library's public API: the root behind the {@see MediaLibrary} facade, and the class
@@ -121,7 +122,7 @@ class MediaLibraryManager
      * rules, disk/visibility, single-file rule and variants apply. Throws when the token is unknown
      * or already bound, when the draft's TTL has lapsed, or when the bucket refuses the file.
      */
-    public function bindDraft(string $token, Model $to, string $bucket = 'default'): Media
+    public function bindDraft(#[SensitiveParameter] string $token, Model $to, string $bucket = 'default'): Media
     {
         return $this->container->make(BindDraftMediaAction::class)->execute($to, $token, $bucket);
     }

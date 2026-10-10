@@ -20,6 +20,7 @@ use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
+use SensitiveParameter;
 
 /**
  * Binds an unbound draft media (matched by its opaque token) to an owning model: sets the
@@ -44,7 +45,7 @@ final class BindDraftMediaAction
         private readonly ReconcileVariantsAction $reconcileVariants,
     ) {}
 
-    public function execute(Model $owner, string $token, string $bucket = 'default'): Media
+    public function execute(Model $owner, #[SensitiveParameter] string $token, string $bucket = 'default'): Media
     {
         $this->guard->ensureSavedOwner($owner);
 
@@ -172,7 +173,7 @@ final class BindDraftMediaAction
      * Take the token off the draft — only while it still carries it. Of two binds racing for one
      * token, the second finds it gone and fails; a failure later in the bind rolls the claim back.
      */
-    private function claim(Media $media, string $token): void
+    private function claim(Media $media, #[SensitiveParameter] string $token): void
     {
         $claimed = MediaModel::query()
             ->whereKey($media->getKey())
@@ -185,7 +186,7 @@ final class BindDraftMediaAction
         }
     }
 
-    private function findDraft(string $token): Media
+    private function findDraft(#[SensitiveParameter] string $token): Media
     {
         $media = MediaModel::query()
             ->whereNotNull('draft_token')
@@ -199,7 +200,7 @@ final class BindDraftMediaAction
         return $media;
     }
 
-    private function guardNotExpired(Media $media, string $token): void
+    private function guardNotExpired(Media $media, #[SensitiveParameter] string $token): void
     {
         $expiresAt = $media->draft_expires_at;
 

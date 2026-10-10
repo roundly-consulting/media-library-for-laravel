@@ -19,6 +19,7 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantCollection;
 use RoundlyConsulting\MediaLibrary\Variants\VariantRegistrar;
+use SensitiveParameter;
 
 /**
  * Opt-in media behaviour for Eloquent models: the `media()` relation, fluent file adders,
@@ -219,7 +220,7 @@ trait InteractsWithMedia
      *
      * Throws when the token is unknown (already bound / never issued) or its TTL has expired.
      */
-    public function attachDraftMedia(string $token, string $bucket = 'default'): Media
+    public function attachDraftMedia(#[SensitiveParameter] string $token, string $bucket = 'default'): Media
     {
         return $this->mediaLibrary()->bindDraft($token, $bucket);
     }
