@@ -102,17 +102,19 @@ final class AddMediaAction
 
         $this->capturePlaceholders($media, $state);
 
-        $shared = $this->storeOriginal($media, $state, $disk, $visibility, $checksum);
+        $shared = $this->saveDeduplicated($media, $disk, $visibility, $checksum);
 
-        try {
-            $media->save();
-        } catch (Throwable $exception) {
-            // No row will ever point at the file just written for it.
-            if (! $shared) {
+        if (! $shared) {
+            $this->writeOriginal($media, $state, $disk, $visibility);
+
+            try {
+                $media->save();
+            } catch (Throwable $exception) {
+                // No row will ever point at the file just written for it.
                 Storage::disk($disk)->delete($media->getPath());
-            }
 
-            throw $exception;
+                throw $exception;
+            }
         }
 
         // The shared file can vanish between the check and the save (its last other referrer
@@ -230,29 +232,19 @@ final class AddMediaAction
     }
 
     /**
-     * Store the original's bytes, deduplicating when an identical `(disk, visibility, checksum)`
-     * already exists: a deduped row points its `path` at the canonical file and writes nothing.
-     * Returns whether it deduplicated.
+     * Save the row onto an identical stored original when one exists for the same
+     * `(disk, visibility, checksum)`: it points its `path` at that file and writes nothing. Saved
+     * under the original's row lock, so a concurrent delete cannot remove the file before this row
+     * commits. Returns whether it deduplicated (and saved).
      */
-    private function storeOriginal(
-        Media $media,
-        PendingFileAddState $state,
-        string $disk,
-        string $visibility,
-        ?string $checksum,
-    ): bool {
+    private function saveDeduplicated(Media $media, string $disk, string $visibility, ?string $checksum): bool
+    {
         $canonical = $this->dedupCanonical($disk, $visibility, $checksum);
 
-        if ($canonical !== null) {
-            $this->files->pin($canonical);
-            $media->path = $canonical->getPath();
-
-            return true;
-        }
-
-        $this->writeOriginal($media, $state, $disk, $visibility);
-
-        return false;
+        return $canonical !== null && $this->files->shareOriginalOf($canonical, static function (string $path) use ($media): void {
+            $media->path = $path;
+            $media->save();
+        });
     }
 
     /**

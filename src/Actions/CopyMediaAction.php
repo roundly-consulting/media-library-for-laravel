@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
@@ -44,6 +45,7 @@ final class CopyMediaAction
     /**
      * @throws FileUnacceptableForBucket when the target bucket does not accept the media
      * @throws FileCannotBeWritten when the target disk refuses the original (no row is created)
+     * @throws ModelNotFoundException when a same-disk source is deleted (or replaced) before it is shared
      */
     public function execute(
         Media $media,
@@ -63,9 +65,7 @@ final class CopyMediaAction
 
         $this->copyFiles($media, $copy);
 
-        DB::transaction(static function () use ($copy): void {
-            $copy->save();
-        });
+        $this->save($media, $copy);
 
         if ($toModel instanceof Model) {
             $this->guard->enforceSingleFile($targetBucket, $toModel, $bucket, $copy);
@@ -76,6 +76,35 @@ final class CopyMediaAction
         $this->reconcileVariants->execute($copy);
 
         return $copy;
+    }
+
+    /**
+     * Save the copy. On the same disk it shares the source's original, so it is saved under the
+     * source's row lock: a concurrent delete of the source waits for the copy, then sees it. A
+     * source already gone takes back the variants copied for it and refuses.
+     *
+     * @throws ModelNotFoundException
+     */
+    private function save(Media $media, Media $copy): void
+    {
+        if ($copy->disk !== $media->disk) {
+            DB::transaction(static function () use ($copy): void {
+                $copy->save();
+            });
+
+            return;
+        }
+
+        $saved = $this->files->shareOriginalOf($media, static function (string $path) use ($copy): void {
+            $copy->path = $path;
+            $copy->save();
+        });
+
+        if (! $saved) {
+            $this->files->deleteVariants($copy);
+
+            throw (new ModelNotFoundException)->setModel($media::class, [$media->getKey()]);
+        }
     }
 
     private function replicate(Media $media, HasMedia|Model|null $toModel, string $bucket, string $targetDisk): Media

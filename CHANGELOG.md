@@ -6,6 +6,31 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Fixed
+
+- A stored original could be deleted while another transaction was starting to share it. A
+  deduplicated add or replace, an `attach()` or a same-disk `copy()` points its row at an existing
+  file, but until that row commits no other connection can see it. A concurrent force-delete of
+  the last committed row on the file found no other referrer and removed it; the sharing row then
+  committed, pointing at nothing. The sharing row is now saved under a row lock on the row it shares
+  with, so the delete waits for it, then sees it. If the shared row is gone by the time the lock is
+  held, a deduplicating add or replace stores its own copy instead, and `attach()` / `copy()` throw
+  `ModelNotFoundException`.
+- A `forceDelete()` inside a transaction that then rolled back lost its files: the row came back,
+  its original and variants did not. The files of a force-deleted media are now removed once the
+  transaction commits, at once outside one, and stay when it rolls back.
+- `replace()` could overwrite bytes another row was about to share. It decided whether the old
+  original was shared with a plain read, so a deduplicated add onto it, not yet committed, was
+  invisible: the new bytes were written in place and the deduplicated row committed pointing at
+  them. A replace now locks its own row first and checks for other referrers with a locking read.
+  A row that starts sharing the file has either committed (the replace sees it and writes its new
+  bytes to a path of its own) or waits until the replace is done. A replace of a row that no
+  longer exists throws `ModelNotFoundException`.
+- A replace inside a transaction that then rolled back left the row on its old checksum with the
+  new bytes: an in-place overwrite was not undone. The old bytes are now kept aside, put back on a
+  rollback and dropped on commit; a replace written to a new path deletes that file on a rollback.
+  The URL of an in-place replace stays the same, as before.
+
 ## 1.1.3 - 2026-10-11
 
 ### Changed

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
@@ -34,6 +35,7 @@ final class AttachMediaAction
 
     /**
      * @throws FileUnacceptableForBucket when the target bucket does not accept the media
+     * @throws ModelNotFoundException when the source is deleted (or replaced) before it is shared
      */
     public function execute(Media $source, HasMedia|Model|null $toModel = null, string $bucket = 'default'): Media
     {
@@ -44,7 +46,16 @@ final class AttachMediaAction
 
         $media = $this->referenceRow($source, $toModel, $bucket);
 
-        $media->save();
+        // Saved under the source's row lock: a concurrent delete of the source waits for this row,
+        // then sees it. A source already gone has no file left to share.
+        $saved = $this->files->shareOriginalOf($source, static function (string $path) use ($media): void {
+            $media->path = $path;
+            $media->save();
+        });
+
+        if (! $saved) {
+            throw (new ModelNotFoundException)->setModel($source::class, [$source->getKey()]);
+        }
 
         if ($toModel instanceof Model) {
             $this->guard->enforceSingleFile($targetBucket, $toModel, $bucket, $media);

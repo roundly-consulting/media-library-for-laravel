@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
@@ -20,6 +22,7 @@ use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use Throwable;
@@ -41,6 +44,9 @@ use Throwable;
  */
 final class ReplaceMediaAction
 {
+    /** The columns that say where a media's files are stored. */
+    private const array STORED_FILE = ['disk', 'path', 'visibility', 'checksum', 'file_name', 'variants_disk', 'generated_variants'];
+
     public function __construct(
         private readonly FileAdderFactory $fileAdderFactory,
         private readonly Checksum $checksum,
@@ -52,6 +58,7 @@ final class ReplaceMediaAction
 
     /**
      * @throws FileUnacceptableForBucket when the owner's bucket does not accept the new file
+     * @throws ModelNotFoundException when the media's row is gone
      */
     public function execute(Media $media, string|UploadedFile $file): Media
     {
@@ -79,23 +86,32 @@ final class ReplaceMediaAction
             $dimensions[1] ?? null,
         );
 
-        $oldPath = $media->getPath();
-        $oldDisk = $media->disk;
-        $oldShared = $this->files->originalIsShared($media);
-        $oldFileName = $media->file_name;
-
-        $this->files->deleteVariants($media);
-
         $newChecksum = $this->checksum->forLocalFile($source->path);
 
-        $this->refreshMetadata($media, $source, $newChecksum, $dimensions);
+        // This row first, then — when the new bytes are already stored — the row it shares with.
+        $media->getConnection()->transaction(function () use ($media, $source, $newChecksum, $dimensions): void {
+            $this->lockRow($media);
 
-        $this->writeOriginal($media, $source, $newChecksum, $oldPath, $oldShared || $media->file_name !== $oldFileName);
+            // A row that starts sharing this original locks this row first, so it has either
+            // committed — and this locking read sees it — or waits for the replace to finish.
+            $oldPath = $media->getPath();
+            $oldDisk = $media->disk;
+            $oldShared = $this->files->originalIsShared($media, locking: true);
+            $oldFileName = $media->file_name;
 
-        $media->generated_variants = [];
-        $media->save();
+            $this->files->deleteVariants($media);
 
-        $this->releaseOldOriginal($oldDisk, $oldPath, $oldShared, $media);
+            $this->refreshMetadata($media, $source, $newChecksum, $dimensions);
+
+            $media->generated_variants = [];
+
+            if (! $this->saveDeduplicated($media, $newChecksum)) {
+                $this->writeOriginal($media, $source, $oldPath, $oldShared || $media->file_name !== $oldFileName);
+                $media->save();
+            }
+
+            $this->releaseOldOriginal($oldDisk, $oldPath, $oldShared, $media);
+        });
 
         $this->dispatchVariants->execute($media, $media->isImage() ? $media->resolveVariants() : []);
 
@@ -153,23 +169,56 @@ final class ReplaceMediaAction
     }
 
     /**
-     * Write the new bytes: onto an identical existing file when dedup finds one, else in place when
-     * the old original was this row's alone and keeps its name, else onto a free path of this
-     * row's own.
+     * Save the row onto an identical existing file when dedup finds one — under that file's row
+     * lock, so a concurrent delete cannot remove it before this row commits. Returns whether it
+     * deduplicated (and saved).
      */
-    private function writeOriginal(Media $media, AddedFile $source, ?string $checksum, string $oldPath, bool $elsewhere): void
+    private function saveDeduplicated(Media $media, ?string $checksum): bool
     {
         $canonical = $this->dedupCanonical($media, $checksum);
 
-        if ($canonical !== null) {
-            $this->files->pin($canonical);
-            $media->path = $canonical->getPath();
+        return $canonical !== null && $this->files->shareOriginalOf($canonical, static function (string $path) use ($media): void {
+            $media->path = $path;
+            $media->save();
+        });
+    }
 
-            return;
+    /**
+     * Lock this media's row for the rest of the replace, and take where its original is stored
+     * from the locked row: a move or replace that committed since this instance was loaded may
+     * have changed it.
+     *
+     * @throws ModelNotFoundException when the row is gone
+     */
+    private function lockRow(Media $media): void
+    {
+        $locked = MediaModel::query()->withTrashed()->whereKey($media->getKey())->lockForUpdate()->first();
+
+        if ($locked === null) {
+            throw (new ModelNotFoundException)->setModel($media::class, [$media->getKey()]);
         }
 
+        $stored = Arr::only($locked->getAttributes(), self::STORED_FILE);
+
+        $media->setRawAttributes(array_merge($media->getAttributes(), $stored));
+        $media->syncOriginalAttributes(array_keys($stored));
+    }
+
+    /**
+     * Write the new bytes: in place when the old original was this row's alone and keeps its
+     * name, else onto a free path of this row's own. Either way a rollback finds the row's old
+     * bytes where it left them: overwritten ones are put back, a new file is deleted.
+     */
+    private function writeOriginal(Media $media, AddedFile $source, string $oldPath, bool $elsewhere): void
+    {
         $target = $elsewhere ? $this->files->freePath($media, $media->disk) : $oldPath;
         $media->path = $target;
+
+        if ($elsewhere) {
+            $this->files->deleteAfterRollBack($media, $media->disk, $target);
+        } else {
+            $this->files->preserveForRollBack($media, $media->disk, $target);
+        }
 
         $stream = @fopen($source->path, 'rb');
 
