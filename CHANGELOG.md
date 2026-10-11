@@ -6,6 +6,8 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+## 1.1.4 - 2026-10-11
+
 ### Fixed
 
 - A stored original could be deleted while another transaction was starting to share it. A
