@@ -157,6 +157,12 @@ final class MediaConfig
                 throw self::invalid($key, 'a map of header name => value', is_string($name) ? $value : $name);
             }
 
+            // The host is the URL's own: a Host header would pick another virtual host on the
+            // address that was vetted for this one.
+            if (strcasecmp(trim($name), 'host') === 0) {
+                throw self::invalid($key, 'a map of header name => value without a Host header', $name);
+            }
+
             $clean[$name] = $value;
         }
 

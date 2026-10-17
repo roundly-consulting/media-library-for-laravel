@@ -69,6 +69,7 @@ return [
     // Remote fetches: addMediaFromUrl() and MediaLibrary::remote()->fetch().
     'remote' => [
         // Extra request headers, sent to the URL's own origin only (see forward_headers_on_redirect).
+        // A Host header is refused: the host is the URL's own.
         'headers' => [],
 
         // The time budget of one fetch, in seconds (at least 1): every redirect hop shares it.

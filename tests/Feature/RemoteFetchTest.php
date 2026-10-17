@@ -478,6 +478,7 @@ it('reads the new remote settings strictly', function (string $key, mixed $value
     'a junk byte cap' => ['media.remote.fetch_max_bytes', 'lots'],
     'negative redirects' => ['media.remote.max_redirects', -1],
     'a junk switch' => ['media.remote.forward_headers_on_redirect', 'maybe'],
+    'a host header' => ['media.remote.headers', ['X-Api-Key' => 'k', 'HOST' => 'admin.internal']],
     'a port list that is not a list' => ['media.remote.allowed_ports', '443'],
     'an empty port list' => ['media.remote.allowed_ports', []],
     'port zero' => ['media.remote.allowed_ports', [443, 0]],
