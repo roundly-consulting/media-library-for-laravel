@@ -231,7 +231,8 @@ final class MediaConfig
     }
 
     /**
-     * Host names, addresses and `address/prefix` ranges exempt from the private-network guard.
+     * Host names, addresses and `address/prefix` ranges exempt from the private-network guard. An
+     * IPv6 address may be bracketed as in a URL (`[::1]`, `[fd00::]/8`); it is read without them.
      *
      * @return list<string>
      */
@@ -239,6 +240,15 @@ final class MediaConfig
     {
         $key = 'media.remote.allowed_private_hosts';
         $entries = self::stringList($key, self::unlessBlank(config($key)) ?? []);
+
+        // An IPv6 address may be written bracketed, as in a URL (`[::1]`, `[fd00::]/8`).
+        $entries = array_map(
+            static fn (string $entry): string => preg_match('/^\[([^\]]+)\](\/\d+)?$/', trim($entry), $match) === 1
+                && filter_var($match[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false
+                    ? $match[1].($match[2] ?? '')
+                    : $entry,
+            $entries,
+        );
 
         foreach ($entries as $entry) {
             if (str_contains($entry, '/') && ! PrivateNetworks::isValidRange($entry)) {

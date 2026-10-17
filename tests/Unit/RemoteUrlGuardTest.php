@@ -161,6 +161,15 @@ it('gives the options that pin a request of your own and keep it off the proxy',
         ->and(MediaLibrary::remote()->vet('http://8.8.8.8/')->httpOptions())->toBe(['proxy' => '']);
 })->skip(! extension_loaded('curl'), 'needs ext-curl');
 
+it('reads a bracketed ipv6 allowlist entry as the address, as the Node twin does', function (): void {
+    guardDns([]);
+    config()->set('media.remote.allowed_private_hosts', ['[::1]', '[fd00:ec2::]/32']);
+
+    expect(vetReason('http://[::1]/'))->toBe('ok')
+        ->and(vetReason('http://[fd00:ec2::254]/'))->toBe('ok')
+        ->and(vetReason('http://[::2]/'))->toBe('blocked');
+});
+
 it('matches an allowlisted name with or without its trailing dot', function (): void {
     guardDns([]);
     config()->set('media.remote.allowed_private_hosts', ['Minio.Internal.']);
