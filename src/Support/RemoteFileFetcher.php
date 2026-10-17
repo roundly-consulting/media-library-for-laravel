@@ -312,8 +312,16 @@ final class RemoteFileFetcher
         try {
             $response = $request->withOptions([
                 'sink' => $sink,
+                // Called for every header block: an informational 1xx (`103 Early Hints`) is not the
+                // answer, so it is passed over and the final one is judged.
                 'on_headers' => static function (ResponseInterface $answer) use (&$headersOnly): void {
-                    if ($answer->getStatusCode() < 200 || $answer->getStatusCode() > 299) {
+                    $status = $answer->getStatusCode();
+
+                    if ($status >= 100 && $status <= 199) {
+                        return;
+                    }
+
+                    if ($status < 200 || $status > 299) {
                         $headersOnly = $answer;
 
                         throw new RuntimeException('Not a success: its body is not read.');

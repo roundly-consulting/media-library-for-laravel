@@ -18,6 +18,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileUnavailable;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Support\HostResolver;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\LocalHttpServer;
+use RoundlyConsulting\MediaLibrary\Tests\Fixtures\RawHttpServer;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 /*
@@ -573,3 +574,29 @@ it('follows a real redirect without reading its body', function (): void {
         $server->stop();
     }
 })->skip(! extension_loaded('curl') || ! function_exists('proc_open'), 'needs ext-curl and proc_open');
+
+it('judges the final answer, never an informational one before it', function (string $final, Closure $check): void {
+    // `103 Early Hints` (CDNs send it on plain GETs) arrives as a header block of its own.
+    $server = RawHttpServer::start("HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n".$final);
+    config()->set('media.remote.allowed_private_hosts', ['127.0.0.1']);
+
+    try {
+        $check("http://127.0.0.1:{$server->port}/");
+    } finally {
+        $server->stop();
+    }
+})->with([
+    'a 200' => ["HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello", function (string $url): void {
+        $page = MediaLibrary::remote()->fetch($url, timeout: 5);
+
+        expect($page->status)->toBe(200)
+            ->and($page->body)->toBe('hello');
+    }],
+    'a 503' => ["HTTP/1.1 503 Service Unavailable\r\nRetry-After: 7\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", function (string $url): void {
+        $failure = remoteFailure(fn () => MediaLibrary::remote()->fetch($url, timeout: 5));
+
+        expect($failure)->toBeInstanceOf(RemoteFileUnavailable::class)
+            ->and($failure->status())->toBe(503)
+            ->and($failure->retryAfter())->toBe(7);
+    }],
+])->skip(! extension_loaded('curl') || ! function_exists('proc_open'), 'needs ext-curl and proc_open');
