@@ -69,6 +69,12 @@
     ],
     "metadata.example": [
       "169.254.169.254"
+    ],
+    "xn--tda.example": [
+      "93.184.216.34"
+    ],
+    "-a.example": [
+      "93.184.216.34"
     ]
   },
   "addresses": [
@@ -551,6 +557,34 @@
     {
       "address": "gggg::1",
       "blocked": true
+    },
+    {
+      "address": " 8.8.8.8",
+      "blocked": true
+    },
+    {
+      "address": "8.8.8.8 ",
+      "blocked": true
+    },
+    {
+      "address": "8.8.8.8\n",
+      "blocked": true
+    },
+    {
+      "address": "[8.8.8.8]",
+      "blocked": true
+    },
+    {
+      "address": "[2606:4700::1111]",
+      "blocked": true
+    },
+    {
+      "address": "2606:4700::1111]",
+      "blocked": true
+    },
+    {
+      "address": "[2606:4700::1111",
+      "blocked": true
     }
   ],
   "urls": [
@@ -769,6 +803,228 @@
     {
       "url": "http://nowhere.example/",
       "verdict": "unresolved"
+    },
+    {
+      "url": "http://８.８.８.８/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://０ｘ８.８.８.８/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://１３４７４４０７２/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://８．８．２０５６/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://２１３０７０６４３３/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://１２７．０．０．１/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://127。0。0。1/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://ü.example/",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://XN--TDA.example/",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://ⓛocalhost/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://-ü.example/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://ab--üd.example/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://-a.ü.example/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://xn--localhost/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://xn--a/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://xn--localhost-/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://-a.example/",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://public.example/a\tb",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/a\r\nb",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/a\u0001b",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/\u007f",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/?q=\u0000",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/#a\tb",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/\n",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://pub\tlic.example/",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/a\\b",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example/?q=a\\b",
+      "verdict": "invalid_url"
+    }
+  ],
+  "redirect_statuses": [
+    301,
+    302,
+    303,
+    307,
+    308
+  ],
+  "redirects": [
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "/a",
+      "next": "http://public.example/a"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "a",
+      "next": "http://public.example/dir/a"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "../a",
+      "next": "http://public.example/a"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "../../../a",
+      "next": "http://public.example/a"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "./a/./b/../c",
+      "next": "http://public.example/dir/a/c"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "/x/../../y",
+      "next": "http://public.example/y"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "/a/b/..",
+      "next": "http://public.example/a/"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": ".",
+      "next": "http://public.example/dir/"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "..",
+      "next": "http://public.example/"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "?q",
+      "next": "http://public.example/dir/page?q"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "#frag",
+      "next": "http://public.example/dir/page?x=1#frag"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "//other.example/p",
+      "next": "http://other.example/p"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "https://other.example/x",
+      "next": "https://other.example/x"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "HTTP://Other.Example/",
+      "next": "HTTP://Other.Example/"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "\\\\other.example/p",
+      "refused": "invalid_url"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "/\\other.example/p",
+      "refused": "invalid_url"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "\\/other.example/p",
+      "refused": "invalid_url"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "\\other.example",
+      "refused": "invalid_url"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "a\\b",
+      "refused": "invalid_url"
+    },
+    {
+      "base": "http://public.example/dir/page?x=1",
+      "location": "/a\tb",
+      "refused": "invalid_url"
+    },
+    {
+      "base": "http://[2606:4700::1111]:8080/a/b",
+      "location": "c",
+      "next": "http://[2606:4700::1111]:8080/a/c"
     }
   ]
 }

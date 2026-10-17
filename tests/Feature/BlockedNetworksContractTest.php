@@ -7,6 +7,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFetchFailed;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Support\HostResolver;
 use RoundlyConsulting\MediaLibrary\Support\PrivateNetworks;
+use RoundlyConsulting\MediaLibrary\Support\RedirectLocation;
 
 /*
  * The blocked-network contract. This file is the reference: `tests/Fixtures/contract/
@@ -74,6 +75,31 @@ it('gives every contract url its verdict', function (string $url, string $verdic
 
     foreach (blockedNetworksContract()['urls'] as $vector) {
         $vectors['"'.$vector['url'].'"'] = [$vector['url'], $vector['verdict']];
+    }
+
+    return $vectors;
+});
+
+it('follows the same redirect statuses', function (): void {
+    expect(RedirectLocation::STATUSES)->toBe(blockedNetworksContract()['redirect_statuses']);
+});
+
+it('resolves every contract redirect location the same way', function (string $base, string $location, ?string $next, ?string $refused): void {
+    try {
+        $actual = RedirectLocation::resolve($base, $location);
+    } catch (RemoteFetchFailed $exception) {
+        $actual = null;
+        expect($exception->reason()->value)->toBe($refused);
+    }
+
+    expect($actual)->toBe($next);
+})->with(function (): array {
+    $vectors = [];
+
+    foreach (blockedNetworksContract()['redirects'] as $vector) {
+        $vectors[json_encode([$vector['base'], $vector['location']], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)] = [
+            $vector['base'], $vector['location'], $vector['next'] ?? null, $vector['refused'] ?? null,
+        ];
     }
 
     return $vectors;
