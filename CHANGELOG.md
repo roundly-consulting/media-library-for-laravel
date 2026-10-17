@@ -6,6 +6,8 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+## 1.3.0 - 2026-10-17
+
 ### Added
 
 - `MediaLibrary::fakeDns()`: a public testing API that answers the remote URL guard's DNS lookups
