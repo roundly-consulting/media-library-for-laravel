@@ -6,6 +6,8 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+## 1.2.0 - 2026-10-17
+
 ### Added
 
 - A `presigned-s3` disk driver for S3 and S3-compatible stores that browsers reach through a
@@ -17,8 +19,18 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   `presign_use_path_style_endpoint` overrides the path style for the public origin. `url()` refuses
   to build an unsigned URL from the in-cluster endpoint unless the disk sets `url`, and
   `temporary_url` is refused next to `presign_endpoint`, because re-hosting a signed URL breaks its
-  signature. Without `presign_endpoint` the disk is Laravel's stock S3 adapter. The S3 stack stays the
-  host's: `league/flysystem-aws-s3-v3` is suggested, not required.
+  signature. Without `presign_endpoint` the disk is Laravel's stock S3 adapter. The S3 stack stays
+  the host's: `league/flysystem-aws-s3-v3` is suggested, not required.
+- `MediaLibrary::remote()`: guarded server-side fetches of user-supplied URLs, with the guard
+  `addFromUrl()` uses and nothing stored. `fetch($url, maxBytes:, timeout:, maxRedirects:, accept:)`
+  returns a `RemoteResponse` (body, status, content type, final URL, headers) for a 2xx answer and
+  throws a `RemoteFetchFailed` for anything else. `vet($url)` returns the guard's verdict without
+  fetching: a `VettedUrl` (the canonical URL, host, port, every vetted address, and for a request
+  of your own `httpOptions()`: Laravel HTTP client options that pin the vetted addresses and keep
+  the request off the environment's proxy; `resolveEntry()` is the bare `CURLOPT_RESOLVE` pin).
+  `isPrivateAddress($address)` judges one address. The same calls exist as `FetchRemoteUrlAction`
+  and `VetRemoteUrlAction`. Under `MediaLibrary::fake()` they stay real and `Http::fake()` answers
+  them.
 - Status-aware remote errors. `RemoteFetchFailed` is the new base of `RemoteFileRejected` and the
   new `RemoteFileUnavailable`, with `retryable()`, `status()`, `retryAfter()` and `reason()` (a
   `RemoteFetchReason`). `RemoteFileRejected` is terminal (a refused URL, a 4xx other than 408/429,
@@ -26,24 +38,14 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   `RemoteFileUnavailable` is retryable (a 5xx, 408 or 429 with its `Retry-After`, a refused or reset
   connection, a timeout, a host that does not resolve). Only a 2xx body is read: any other answer
   stops after its headers and is judged by its status, so a 503 with an error page larger than the
-  cap stays a retryable 503. Messages name the URL with all of its user info masked (a password
-  holding `/`, `?`, `#` or `@` included), never an address it resolved to.
-- `MediaLibrary::remote()`: guarded server-side fetches of user-supplied URLs, with the guard
-  `addFromUrl()` uses and nothing stored. `fetch($url, maxBytes:, timeout:, maxRedirects:, accept:)`
-  returns a `RemoteResponse` (body, status, content type, final URL, headers) for a 2xx answer and
-  throws a `RemoteFetchFailed` for anything else. `vet($url)` returns the guard's verdict without
-  fetching: a `VettedUrl` (the canonical URL, host, port, every vetted address, and for a request
-  of your own `httpOptions()`: Laravel HTTP client options that pin the vetted addresses and keep the
-  request off the environment's proxy; `resolveEntry()` is the bare `CURLOPT_RESOLVE` pin). `isPrivateAddress($address)` judges
-  one address. The same calls exist as `FetchRemoteUrlAction` and `VetRemoteUrlAction`. Under
-  `MediaLibrary::fake()` they stay real and `Http::fake()` answers them.
+  cap stays a retryable 503. `addFromUrl()` still throws `RemoteFileRejected` for a refused URL and
+  reports a non-2xx answer, a failed connection and a host that does not resolve as it always has.
+  Messages name the URL with all of its user info masked (a password holding `/`, `?`, `#` or `@`
+  included), never an address it resolved to.
 - `media.remote.fetch_max_bytes` (the `fetch()` byte cap, default 5 MB), `media.remote.max_redirects`
-  (default 5, before a fixed limit; `0` follows none; only a 301, 302, 303, 307 or 308 is followed),
-  `media.remote.allowed_ports` (default any port) and `media.remote.forward_headers_on_redirect`
-  (default off).
-- The blocked-network table, its address and URL vectors, the redirect statuses and the
-  resolution of redirect locations are a contract fixture shared with the Node twin
-  (`tests/Fixtures/contract/blocked-networks.json`), so both judge the same destinations.
+  (default 5, the limit that used to be fixed; `0` follows none; only a 301, 302, 303, 307 or 308 is
+  followed), `media.remote.allowed_ports` (default any port) and
+  `media.remote.forward_headers_on_redirect` (default off).
 - A `SafeRemoteUrl` validation rule for URLs users hand in for a server-side fetch: it fails with
   one translated message for every refusal (`media::validation.remote_url`), so its answer never
   tells a user which internal names exist; `vet()` gives the exact reason. These are the package's
@@ -56,6 +58,9 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 - `media.remote.timeout` is now one budget for the whole fetch, every redirect hop included. Before,
   each of up to six requests got the full timeout. A hop that would start with less than a
   millisecond of it left fails as a timeout (curl reads a zero timeout as none).
+- Maintenance: the blocked-network table, its address and URL vectors, the redirect statuses and the
+  resolution of redirect locations are one contract shared with the package's Node twin and tested
+  on both sides, so both judge the same destinations.
 
 ### Security
 
@@ -72,15 +77,15 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 - A URL is parsed and rebuilt by the guard before any request, so PHP and curl can no longer read a
   different host into it. Refused: a control character anywhere in the URL, user info, numeric IPv4
   spellings (`2130706433`, `0x7f.1`, `0177.0.0.1`, `127.1`), a backslash, whitespace (Unicode
-  whitespace and U+FEFF included) or `%` in the host, a backslash anywhere else, an IPv6 zone id, and the names `localhost` / `*.localhost`. A
-  host with a non-ASCII character or a punycode (`xn--`) label goes through UTS #46 with ext-intl
-  (nontransitional, with the hyphen, bidi and joiner rules) and is refused without it (ext-intl is
-  now in `suggest`: without it even an ASCII `xn--` host is refused); an address
-  it maps to (`８.８.８.８`, `127。0。0。1`) is refused, never normalised. A redirect `Location` with
-  a backslash or a control character is refused, and a fragment-only one stays on the same
-  document. `media.remote.allowed_private_hosts` names match with or without a trailing dot, and an
-  IPv6 entry may be bracketed (`[::1]`). An informational answer (`103 Early Hints`) is passed over:
-  the final answer is the one judged.
+  whitespace and U+FEFF included) or `%` in the host, a backslash anywhere else, an IPv6 zone id,
+  and the names `localhost` / `*.localhost`. A host with a non-ASCII character or a punycode
+  (`xn--`) label goes through UTS #46 with ext-intl (nontransitional, with the hyphen, bidi and
+  joiner rules) and is refused without it (ext-intl is now in `suggest`: without it even an ASCII
+  `xn--` host is refused); an address it maps to (`８.８.８.８`, `127。0。0。1`) is refused, never
+  normalised. A redirect `Location` with a backslash or a control character is refused, and a
+  fragment-only one stays on the same document. `media.remote.allowed_private_hosts` names match
+  with or without a trailing dot, and an IPv6 entry may be bracketed (`[::1]`). An informational
+  answer (`103 Early Hints`) is passed over: the final answer is the one judged.
 - The blocked networks gain Azure's WireServer (`168.63.129.16`, reachable from every Azure VM and
   AKS node), `3fff::/20` (IPv6 documentation) and `5f00::/16` (SRv6), and an IPv4-translated
   address (`::ffff:0:a.b.c.d`) is judged by the IPv4 address it carries.
