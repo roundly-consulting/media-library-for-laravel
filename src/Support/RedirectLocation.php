@@ -51,7 +51,7 @@ final class RedirectLocation
         $path = $parts['path'] ?? '/';
         $query = isset($parts['query']) ? '?'.$parts['query'] : '';
 
-        if (str_starts_with($location, '#')) {
+        if ($location === '' || str_starts_with($location, '#')) {
             // The same document: base path and query kept, as RFC 3986 §5.2.2 says.
             return $scheme.'://'.$authority.$path.$query.$location;
         }
@@ -79,19 +79,28 @@ final class RedirectLocation
 
         $output = [];
 
+        $last = '';
+
         foreach (explode('/', $reference) as $segment) {
-            if ($segment === '..') {
+            // `%2e` is a dot here too, as WHATWG parsers read it (`/%2e%2e/x` is `/x`).
+            $last = match (strtolower($segment)) {
+                '..', '.%2e', '%2e.', '%2e%2e' => '..',
+                '.', '%2e' => '.',
+                default => $segment,
+            };
+
+            if ($last === '..') {
                 if (count($output) > 1) {
                     array_pop($output);
                 }
-            } elseif ($segment !== '.') {
+            } elseif ($last !== '.') {
                 $output[] = $segment;
             }
         }
 
         $path = implode('/', $output);
 
-        if (str_ends_with($reference, '/..') || str_ends_with($reference, '/.')) {
+        if ($last === '..' || $last === '.') {
             $path .= '/';
         }
 
