@@ -151,6 +151,16 @@ it('needs ext-intl for a punycode label as well', function (): void {
     expect(vetReason('http://xn--tda.example/'))->toBe('non_canonical_host');
 });
 
+it('gives the options that pin a request of your own and keep it off the proxy', function (): void {
+    guardDns(['files.example.com' => ['93.184.216.34']]);
+
+    expect(MediaLibrary::remote()->vet('https://files.example.com/a')->httpOptions())->toBe([
+        'proxy' => '',
+        'curl' => [CURLOPT_RESOLVE => ['files.example.com:443:93.184.216.34']],
+    ])
+        ->and(MediaLibrary::remote()->vet('http://8.8.8.8/')->httpOptions())->toBe(['proxy' => '']);
+})->skip(! extension_loaded('curl'), 'needs ext-curl');
+
 it('matches an allowlisted name with or without its trailing dot', function (): void {
     guardDns([]);
     config()->set('media.remote.allowed_private_hosts', ['Minio.Internal.']);
