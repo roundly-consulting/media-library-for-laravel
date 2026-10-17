@@ -71,8 +71,8 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   address is down fails over only to addresses the guard checked.
 - A URL is parsed and rebuilt by the guard before any request, so PHP and curl can no longer read a
   different host into it. Refused: a control character anywhere in the URL, user info, numeric IPv4
-  spellings (`2130706433`, `0x7f.1`, `0177.0.0.1`, `127.1`), a backslash, whitespace or `%` in the
-  host, a backslash anywhere else, an IPv6 zone id, and the names `localhost` / `*.localhost`. A
+  spellings (`2130706433`, `0x7f.1`, `0177.0.0.1`, `127.1`), a backslash, whitespace (Unicode
+  whitespace and U+FEFF included) or `%` in the host, a backslash anywhere else, an IPv6 zone id, and the names `localhost` / `*.localhost`. A
   host with a non-ASCII character or a punycode (`xn--`) label goes through UTS #46 with ext-intl
   (nontransitional, with the hyphen, bidi and joiner rules) and is refused without it (ext-intl is
   now in `suggest`: without it even an ASCII `xn--` host is refused); an address

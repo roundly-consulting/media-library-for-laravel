@@ -217,5 +217,7 @@ it('refuses what the shared vectors do not spell out', function (string $url, st
     'a port past any integer' => ['http://example.com:99999999999999999999999/', 'port'],
     'a negative port' => ['http://example.com:-1/', 'invalid_url'],
     'a control character in the host' => ["http://exam\x01ple.com/", 'invalid_url'],
+    'a zero-width no-break space in the host' => ["http://exam\u{FEFF}ple.com/", 'non_canonical_host'],
+    'a no-break space in the host' => ["http://exam\u{00A0}ple.com/", 'non_canonical_host'],
     'a control character in a url of another scheme' => ["gopher://exa\tmple.com/", 'invalid_url'],
 ]);

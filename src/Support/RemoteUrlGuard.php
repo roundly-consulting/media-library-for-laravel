@@ -21,8 +21,8 @@ use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileUnavailable;
  *    tab or newline silently, so it is refused rather than guessed at;
  * 2. `invalid_url` — no `scheme:`; 3. `scheme` — not http(s); 4. `invalid_url` — no `//`
  *    authority, or an empty one;
- * 5. `non_canonical_host` — a backslash, whitespace or `%` in the authority (a percent-encoded
- *    host, an IPv6 zone id);
+ * 5. `non_canonical_host` — a backslash, whitespace (Unicode whitespace and U+FEFF too) or `%`
+ *    in the authority (a percent-encoded host, an IPv6 zone id);
  * 6. `credentials` — any user info (`@`);
  * 7. `invalid_url` — a port that is not digits; `port` — a port outside 1–65535;
  * 8. `non_canonical_host` — anything but a canonical dotted-quad IPv4 address, a bracketed IPv6
@@ -128,7 +128,10 @@ final class RemoteUrlGuard
             throw RemoteFileRejected::invalidUrl($url);
         }
 
-        if (preg_match('/[\x20\\\\%]/', $authority) === 1) {
+        // A space, a backslash or `%` — or any other whitespace a WHATWG parser knows, U+FEFF
+        // included, which IDNA would drop without a trace.
+        if (preg_match('/[\x20\\\\%]/', $authority) === 1
+            || preg_match('/[\x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]/u', $authority) === 1) {
             throw RemoteFileRejected::nonCanonicalHost($url);
         }
 
