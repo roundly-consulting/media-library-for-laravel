@@ -6,9 +6,12 @@ namespace RoundlyConsulting\MediaLibrary;
 
 use Closure;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Database\Events\TransactionRolledBack;
+use Illuminate\Filesystem\AwsS3V3Adapter;
+use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Validation\Validator;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
@@ -20,6 +23,7 @@ use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
+use RoundlyConsulting\MediaLibrary\Filesystem\PresignedS3Driver;
 use RoundlyConsulting\MediaLibrary\Observers\MediaObserver;
 use RoundlyConsulting\MediaLibrary\Support\CdnUrlGenerator;
 use RoundlyConsulting\MediaLibrary\Support\DefaultFileNamer;
@@ -83,6 +87,16 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
         $events = $this->app->make(Dispatcher::class);
         $events->listen(TransactionCommitted::class, [RollbackCallbacks::class, 'committed']);
         $events->listen(TransactionRolledBack::class, [RollbackCallbacks::class, 'rolledBack']);
+
+        // An opt-in disk driver for S3 behind a separate public presign origin. Registered when the
+        // filesystem manager is first built; the driver itself runs on first use of such a disk.
+        $this->callAfterResolving('filesystem', static function (FilesystemManager $filesystem): void {
+            $filesystem->extend(
+                PresignedS3Driver::DRIVER,
+                // Not static: the manager binds custom driver callbacks to itself.
+                fn (Application $app, array $config): AwsS3V3Adapter => $app->make(PresignedS3Driver::class)->create($config),
+            );
+        });
 
         $this->callAfterResolving('validator', static function (ValidationFactory $validator): void {
             $validator->extend(

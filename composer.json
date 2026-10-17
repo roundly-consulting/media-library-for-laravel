@@ -32,6 +32,7 @@
         "guzzlehttp/psr7": "^2.12.3",
         "larastan/larastan": "^3.0",
         "laravel/pint": "^1.18",
+        "league/flysystem-aws-s3-v3": "^3.0",
         "nunomaduro/collision": "^8.8|^9.0",
         "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^4.0",
@@ -43,7 +44,8 @@
     },
     "suggest": {
         "ext-imagick": "Preferred image driver for generating media variants.",
-        "ext-gd": "Fallback image driver for generating media variants when Imagick is unavailable."
+        "ext-gd": "Fallback image driver for generating media variants when Imagick is unavailable.",
+        "league/flysystem-aws-s3-v3": "Required for the presigned-s3 disk driver (S3 / S3-compatible storage with a separate presign endpoint)."
     },
     "autoload": {
         "psr-4": {

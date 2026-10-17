@@ -143,6 +143,13 @@ arch('src uses only allowed namespaces')
         'Symfony\Component\HttpKernel\Exception\NotFoundHttpException',
         // Laravel's own mime/extension map (illuminate/http and filesystem are built on it).
         'Symfony\Component\Mime\MimeTypes',
+        // The `presigned-s3` disk driver (Filesystem\). Not in `require`: like Laravel's own `s3`
+        // driver, the S3 stack is the host's, present exactly when it configures S3 (`suggest`).
+        'Aws\S3\S3Client',
+        // The Flysystem interfaces Laravel's AwsS3V3Adapter is built from (league/flysystem
+        // ships with illuminate/filesystem).
+        'League\Flysystem\FilesystemOperator',
+        'League\Flysystem\FilesystemAdapter',
         'ReflectionClass',
         'Carbon',
         'Closure',
@@ -151,6 +158,9 @@ arch('src uses only allowed namespaces')
         'Imagick',
         'ImagickPixel',
         'IteratorAggregate',
+        // An invariant broken, never caught: the presign client sending, the framework's S3 factory
+        // changing shape. Not a RuntimeException, so URL resolution never degrades past it.
+        'LogicException',
         'RuntimeException',
         'Throwable',
         'Traversable',

@@ -6,6 +6,20 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Added
+
+- A `presigned-s3` disk driver for S3 and S3-compatible stores that browsers reach through a
+  different origin than the application does (an in-cluster object store behind a public ingress).
+  A disk opts in with `'driver' => 'presigned-s3'`; every `s3` key still applies. With
+  `presign_endpoint` set, reads and writes keep going to `endpoint` while `temporaryUrl()` and
+  `temporaryUploadUrl()` are signed for the public origin by a second client that shares the disk's
+  credentials (session tokens included), region and client options, and never sends a request.
+  `presign_use_path_style_endpoint` overrides the path style for the public origin. `url()` refuses
+  to build an unsigned URL from the in-cluster endpoint unless the disk sets `url`, and
+  `temporary_url` is refused next to `presign_endpoint`, because re-hosting a signed URL breaks its
+  signature. Without `presign_endpoint` the disk is Laravel's stock S3 adapter. The S3 stack stays the
+  host's: `league/flysystem-aws-s3-v3` is suggested, not required.
+
 ## 1.1.4 - 2026-10-11
 
 ### Fixed
