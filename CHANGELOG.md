@@ -6,6 +6,10 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Fixed
+
+- Factories build the configured model when a host swaps it.
+
 ## 1.3.0 - 2026-10-17
 
 ### Added

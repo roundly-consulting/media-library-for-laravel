@@ -7,11 +7,23 @@ namespace RoundlyConsulting\MediaLibrary\Database\Factories;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 
 /** @extends Factory<Media> */
 final class MediaFactory extends Factory
 {
     protected $model = Media::class;
+
+    /**
+     * Build the model the host configured in `media.media_model`, not the packaged one,
+     * so a host subclass comes out of the factory with its own events and observers.
+     *
+     * @return class-string<Media>
+     */
+    public function modelName(): string
+    {
+        return MediaModel::class();
+    }
 
     /** @return array<model-property<Media>, mixed> */
     public function definition(): array

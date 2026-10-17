@@ -129,3 +129,15 @@ it('honours a host media model through every add and read flow', function (): vo
         ];
     });
 });
+
+/**
+ * The factory named the packaged Media, so `Media::factory()` built the packaged class after a
+ * host swapped it: the host's model events — and the file-cleanup observer on them — never ran.
+ */
+it('builds the configured model from the factory', function (): void {
+    CustomMedia::resetCreationCount();
+
+    expect(Media::factory()->create()::class)->toBe(CustomMedia::class)
+        ->and(CustomMedia::factory()->create()::class)->toBe(CustomMedia::class)
+        ->and(CustomMedia::creationCount())->toBe(2);
+});
