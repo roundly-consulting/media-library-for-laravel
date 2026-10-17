@@ -150,6 +150,8 @@ arch('src uses only allowed namespaces')
         // ships with illuminate/filesystem).
         'League\Flysystem\FilesystemOperator',
         'League\Flysystem\FilesystemAdapter',
+        // The answer `on_headers` hands over (Laravel's HTTP client is built on PSR-7).
+        'Psr\Http\Message\ResponseInterface',
         'ReflectionClass',
         'Carbon',
         'Closure',

@@ -170,6 +170,79 @@ it('spends one timeout budget across every hop', function (): void {
         ->and($failure->retryable())->toBeTrue();
 });
 
+it('treats a budget with less than a millisecond left as spent, never as no timeout', function (): void {
+    // curl reads CURLOPT_TIMEOUT_MS as an integer, and 0 as "no timeout at all": a hop started
+    // with 0.4 ms left would otherwise run unbounded.
+    Carbon::setTestNow('2026-10-17 12:00:00.000000');
+
+    Http::fake(function () {
+        Carbon::setTestNow(Carbon::now()->addMicroseconds(29_999_600));
+
+        return Http::response('', 302, ['Location' => 'https://example.com/next']);
+    });
+
+    try {
+        $failure = remoteFailure(fn () => MediaLibrary::remote()->fetch('https://example.com/start', timeout: 30));
+    } finally {
+        Carbon::setTestNow();
+    }
+
+    expect($failure)->toBeInstanceOf(RemoteFileUnavailable::class)
+        ->and($failure->reason())->toBe(RemoteFetchReason::Timeout);
+    Http::assertSentCount(1);
+});
+
+it('keeps the status class of an error page larger than the cap', function (): void {
+    Http::fake(['*' => Http::response(str_repeat('x', 2000), 503, ['Retry-After' => '5'])]);
+
+    $failure = remoteFailure(fn () => MediaLibrary::remote()->fetch('https://example.com/x', maxBytes: 1000));
+
+    expect($failure)->toBeInstanceOf(RemoteFileUnavailable::class)
+        ->and($failure->reason())->toBe(RemoteFetchReason::Status)
+        ->and($failure->status())->toBe(503)
+        ->and($failure->retryAfter())->toBe(5);
+});
+
+it('follows a redirect whose body is larger than the cap', function (): void {
+    Http::fake([
+        'example.com/*' => Http::response(str_repeat('<p>moved</p>', 100), 301, ['Location' => 'https://cdn.example.net/doc']),
+        'cdn.example.net/*' => Http::response('document', 200),
+    ]);
+
+    expect(MediaLibrary::remote()->fetch('https://example.com/old', maxBytes: 100)->body)->toBe('document');
+});
+
+it('follows only 301, 302, 303, 307 and 308', function (int $status): void {
+    Http::fake([
+        'example.com/*' => Http::response('', $status, ['Location' => 'https://cdn.example.net/doc']),
+        '*' => Http::response('document', 200),
+    ]);
+
+    $failure = remoteFailure(fn () => MediaLibrary::remote()->fetch('https://example.com/x'));
+
+    expect($failure->reason())->toBe(RemoteFetchReason::Status)
+        ->and($failure->status())->toBe($status);
+    Http::assertSentCount(1);
+})->with([300, 304, 305, 306]);
+
+it('refuses a redirect location with a backslash or a control character', function (string $location): void {
+    Http::fake([
+        'example.com/start' => Http::response('', 302, ['Location' => $location]),
+        '*' => Http::response('document', 200),
+    ]);
+
+    $failure = remoteFailure(fn () => MediaLibrary::remote()->fetch('https://example.com/start'));
+
+    expect($failure)->toBeInstanceOf(RemoteFileRejected::class)
+        ->and($failure->reason())->toBe(RemoteFetchReason::InvalidUrl);
+    Http::assertSentCount(1);
+})->with([
+    'backslash-led' => ['/\\evil.example/'],
+    'double backslash' => ['\\\\evil.example/'],
+    'backslash in a path' => ['a\\b'],
+    'a tab' => ["/a\tb"],
+]);
+
 it('classifies an http status by whether a retry can heal it', function (int $status, bool $retryable): void {
     Http::fake(['*' => Http::response('nope', $status)]);
 
@@ -465,6 +538,36 @@ it('reports a real 503 as retryable with its Retry-After', function (): void {
         expect($failure)->toBeInstanceOf(RemoteFileUnavailable::class)
             ->and($failure->status())->toBe(503)
             ->and($failure->retryAfter())->toBe(7);
+    } finally {
+        $server->stop();
+    }
+})->skip(! extension_loaded('curl') || ! function_exists('proc_open'), 'needs ext-curl and proc_open');
+
+it('keeps a real 503 retryable however large its error page', function (): void {
+    $server = LocalHttpServer::start();
+    config()->set('media.remote.allowed_private_hosts', ['127.0.0.1']);
+    $started = microtime(true);
+
+    try {
+        $failure = remoteFailure(fn () => MediaLibrary::remote()->fetch("http://127.0.0.1:{$server->port}/unavailable-endless", maxBytes: 1024, timeout: 5));
+
+        expect($failure)->toBeInstanceOf(RemoteFileUnavailable::class)
+            ->and($failure->status())->toBe(503)
+            ->and($failure->retryAfter())->toBe(7)
+            ->and(microtime(true) - $started)->toBeLessThan(4.0);
+    } finally {
+        $server->stop();
+    }
+})->skip(! extension_loaded('curl') || ! function_exists('proc_open'), 'needs ext-curl and proc_open');
+
+it('follows a real redirect without reading its body', function (): void {
+    $server = LocalHttpServer::start();
+    config()->set('media.remote.allowed_private_hosts', ['127.0.0.1']);
+
+    try {
+        $page = MediaLibrary::remote()->fetch("http://127.0.0.1:{$server->port}/redirect-endless", maxBytes: 1024, timeout: 5);
+
+        expect($page->body)->toBe('hello from the pinned server');
     } finally {
         $server->stop();
     }

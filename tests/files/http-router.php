@@ -43,6 +43,25 @@ if ($path === '/gzip-bomb') {
     return;
 }
 
+if ($path === '/unavailable-endless' || $path === '/redirect-endless') {
+    // An answer that is not a success, with a body that never ends: only its status may count.
+    if ($path === '/unavailable-endless') {
+        header('Retry-After: 7');
+        http_response_code(503);
+    } else {
+        header('Location: /hello.txt', true, 302);
+    }
+
+    $chunk = str_repeat('x', 8192);
+
+    while (! connection_aborted()) {
+        echo $chunk;
+        flush();
+    }
+
+    return;
+}
+
 if ($path === '/unavailable') {
     header('Retry-After: 7');
     http_response_code(503);

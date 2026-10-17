@@ -10,6 +10,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Psr\Http\Message\ResponseInterface;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\FetchOptions;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\RemoteResponse;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
@@ -32,9 +33,14 @@ use Throwable;
  * resolved once, every address must be public unless allowlisted, the connection is pinned to
  * every vetted address (so a second DNS answer cannot swap in another, and a dead first address
  * fails over only to vetted ones), and the environment's proxy is bypassed (a proxy would resolve
- * the name itself). Redirects are followed by hand, up to `media.remote.max_redirects`, each one
- * judged the same way. `media.remote.headers` go to the first origin only, unless
- * `media.remote.forward_headers_on_redirect`, and one `timeout` budget covers every hop.
+ * the name itself). A 301, 302, 303, 307 or 308 is followed by hand ({@see RedirectLocation}), up
+ * to `media.remote.max_redirects`, each hop judged the same way. `media.remote.headers` go to the
+ * first origin only, unless `media.remote.forward_headers_on_redirect`, and one `timeout` budget
+ * covers every hop; a hop that would start with less than a millisecond of it left is a timeout.
+ *
+ * Only a 2xx body is read through the cap. Any other answer is classified by its status and
+ * headers alone: the transfer stops before its body, so a 503 with a huge error page stays a
+ * retryable 503 and a redirect is followed without reading what it says.
  *
  * @internal
  */
@@ -129,11 +135,13 @@ final class RemoteFileFetcher
         $origin = null;
 
         for ($redirects = 0; ; $redirects++) {
-            [$requestUrl, $hopOrigin, $pin] = $guarded ? $this->vetHop($url, $strict) : self::unguardedHop($url);
+            [$requestUrl, $hopOrigin, $pinning] = $guarded ? $this->vetHop($url, $strict) : self::unguardedHop($url);
             $origin ??= $hopOrigin;
             $remaining = $deadline - self::now();
 
-            if ($remaining <= 0) {
+            // Under a millisecond is spent: curl reads its timeout in whole milliseconds, and 0 as
+            // "no timeout at all".
+            if ($remaining < 0.001) {
                 throw $strict
                     ? RemoteFileUnavailable::timedOut($requestUrl, $timeout)
                     : new ConnectionException("The remote file [{$requestUrl}] did not answer within {$timeout} seconds.");
@@ -149,19 +157,15 @@ final class RemoteFileFetcher
                 $request->accept($accept);
             }
 
-            if ($guarded) {
-                $request->withOptions(['proxy' => '']);
-
-                if ($pin !== null) {
-                    $request->withOptions(['curl' => [CURLOPT_RESOLVE => [$pin]]]);
-                }
+            if ($pinning !== []) {
+                $request->withOptions($pinning);
             }
 
             [$response, $sink] = $strict
                 ? $this->sendClassified($request, $requestUrl, $target, $maxBytes, $timeout)
                 : $this->send($request, $requestUrl, $target, $maxBytes);
 
-            $location = $response->redirect() ? trim($response->header('Location')) : '';
+            $location = in_array($response->status(), RedirectLocation::STATUSES, true) ? trim($response->header('Location')) : '';
 
             if ($location === '') {
                 return [$response, $sink, $requestUrl];
@@ -173,14 +177,15 @@ final class RemoteFileFetcher
                 throw RemoteFileRejected::tooManyRedirects($requestUrl, $maxRedirects);
             }
 
-            $url = self::resolveReference($requestUrl, $location);
+            $url = RedirectLocation::resolve($requestUrl, $location);
         }
     }
 
     /**
-     * Judge one hop: the URL to request (rebuilt from the vetted parts), its origin and the pin.
+     * Judge one hop: the URL to request (rebuilt from the vetted parts), its origin and the client
+     * options that pin it and keep it off the proxy.
      *
-     * @return array{0: string, 1: string, 2: ?string}
+     * @return array{0: string, 1: string, 2: array<string, mixed>}
      */
     private function vetHop(string $url, bool $strict): array
     {
@@ -191,23 +196,16 @@ final class RemoteFileFetcher
             throw $strict ? $exception : RemoteFileRejected::unresolvableHost($url);
         }
 
-        $pin = $vetted->resolveEntry();
-
-        // Without curl, Laravel's client cannot be told which addresses to use.
-        if ($pin !== null && ! extension_loaded('curl')) {
-            throw RemoteFileRejected::cannotPin($url);
-        }
-
         $scheme = substr($vetted->url, 0, (int) strpos($vetted->url, ':'));
         $host = str_contains($vetted->host, ':') ? '['.$vetted->host.']' : $vetted->host;
 
-        return [$vetted->url, "{$scheme}://{$host}:{$vetted->port}", $pin];
+        return [$vetted->url, "{$scheme}://{$host}:{$vetted->port}", $vetted->httpOptions()];
     }
 
     /**
      * A hop with the guard switched off: only the scheme is checked, nothing is pinned.
      *
-     * @return array{0: string, 1: string, 2: null}
+     * @return array{0: string, 1: string, 2: array<string, mixed>}
      */
     private static function unguardedHop(string $url): array
     {
@@ -220,7 +218,7 @@ final class RemoteFileFetcher
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         $port = parse_url($url, PHP_URL_PORT) ?? ($scheme === 'https' ? 443 : 80);
 
-        return [$url, "{$scheme}://{$host}:{$port}", null];
+        return [$url, "{$scheme}://{$host}:{$port}", []];
     }
 
     /**
@@ -300,16 +298,33 @@ final class RemoteFileFetcher
      * One request, its body written to `$target` (truncated first) through the size cap. Returns
      * the response and the sink, still open; a sink that does not exist is the caller's to close.
      *
+     * A 2xx body is the only one read: any other answer stops the transfer once its headers are in
+     * (`on_headers`), so its status decides — never the size of an error page or a redirect body.
+     *
      * @return array{0: Response, 1: resource}
      */
     private function send(PendingRequest $request, string $url, string $target, ?int $maxBytes): array
     {
         $limit = $maxBytes === null ? null : new SizeLimit($maxBytes);
         $sink = self::open($target, $limit);
+        $headersOnly = null;
 
         try {
-            $response = $request->withOptions(['sink' => $sink])->get($url);
+            $response = $request->withOptions([
+                'sink' => $sink,
+                'on_headers' => static function (ResponseInterface $answer) use (&$headersOnly): void {
+                    if ($answer->getStatusCode() < 200 || $answer->getStatusCode() > 299) {
+                        $headersOnly = $answer;
+
+                        throw new RuntimeException('Not a success: its body is not read.');
+                    }
+                },
+            ])->get($url);
         } catch (Throwable $exception) {
+            if ($headersOnly !== null) {
+                return [new Response($headersOnly), $sink];
+            }
+
             fclose($sink);
 
             // Over the cap, the short write is what aborted the transfer.
@@ -318,6 +333,11 @@ final class RemoteFileFetcher
             }
 
             throw $exception;
+        }
+
+        if (! $response->successful()) {
+            // Answered without on_headers (`Http::fake()`): still only its status counts.
+            return [$response, $sink];
         }
 
         if ($limit !== null && $limit->exceeded) {
@@ -420,66 +440,5 @@ final class RemoteFileFetcher
     private static function now(): float
     {
         return CarbonImmutable::now()->getPreciseTimestamp(6) / 1_000_000;
-    }
-
-    /** Resolve a redirect's `Location` against the URL it came from (RFC 3986 §5.2). */
-    private static function resolveReference(string $base, string $reference): string
-    {
-        if (preg_match('#^[a-z][a-z0-9+.\-]*:#i', $reference) === 1) {
-            return $reference;
-        }
-
-        $parts = parse_url($base);
-        $scheme = $parts['scheme'] ?? 'http';
-        $authority = ($parts['host'] ?? '');
-        $authority = str_contains($authority, ':') && ! str_starts_with($authority, '[') ? '['.$authority.']' : $authority;
-        $authority .= isset($parts['port']) ? ':'.$parts['port'] : '';
-
-        if (str_starts_with($reference, '//')) {
-            return $scheme.':'.$reference;
-        }
-
-        $path = $parts['path'] ?? '/';
-
-        if (str_starts_with($reference, '?')) {
-            return $scheme.'://'.$authority.$path.$reference;
-        }
-
-        if (! str_starts_with($reference, '/')) {
-            $reference = substr($path, 0, (int) strrpos($path, '/') + 1).$reference;
-        }
-
-        return $scheme.'://'.$authority.self::removeDotSegments($reference);
-    }
-
-    private static function removeDotSegments(string $reference): string
-    {
-        $query = '';
-        $cut = strcspn($reference, '?#');
-
-        if ($cut < strlen($reference)) {
-            $query = substr($reference, $cut);
-            $reference = substr($reference, 0, $cut);
-        }
-
-        $output = [];
-
-        foreach (explode('/', $reference) as $segment) {
-            if ($segment === '..') {
-                if (count($output) > 1) {
-                    array_pop($output);
-                }
-            } elseif ($segment !== '.') {
-                $output[] = $segment;
-            }
-        }
-
-        $path = implode('/', $output);
-
-        if (str_ends_with($reference, '/..') || str_ends_with($reference, '/.')) {
-            $path .= '/';
-        }
-
-        return ($path === '' ? '/' : $path).$query;
     }
 }
