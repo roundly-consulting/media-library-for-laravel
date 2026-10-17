@@ -62,6 +62,27 @@ it('keeps user info and control characters out of every message', function (): v
         ->and($message)->toContain('https://***@example.com/a');
 });
 
+it('masks a password that holds a slash, a question mark or a hash', function (string $url, string $secret): void {
+    $message = RemoteFileRejected::invalidUrl($url)->getMessage();
+
+    expect($message)->not->toContain($secret)
+        ->and($message)->toContain('***@');
+})->with([
+    'hash' => ['http://user:p#ss@example.com/a', 'p#ss'],
+    'slash' => ['http://user:pa/ss@example.com/a', 'pa/ss'],
+    'question mark' => ['http://user:p?ss@example.com/a', 'p?ss'],
+    'an at sign too' => ['http://user:p@ss/x@example.com/a', 'ss/x'],
+]);
+
+it('leaves a url alone whose @ is only in the path', function (string $url): void {
+    expect(RemoteFileRejected::invalidUrl($url)->getMessage())->toContain($url);
+})->with([
+    'a name' => ['https://example.com/@user/post'],
+    'a port' => ['https://example.com:8443/@user/post'],
+    'an ipv6 literal' => ['https://[2606:4700::1111]:8443/@user'],
+    'an empty port' => ['https://example.com:/@user'],
+]);
+
 it('shortens a very long url in a message', function (): void {
     $message = RemoteFileRejected::invalidUrl('https://example.com/'.str_repeat('a', 5000))->getMessage();
 

@@ -62,6 +62,11 @@ abstract class RemoteFetchFailed extends MediaLibraryException
     /**
      * A URL as a message shows it: user info masked, control characters replaced, very long URLs
      * shortened.
+     *
+     * A password may hold a `/`, `?`, `#` or `@`, and then the authority seems to end early
+     * (`http://user:p#ss@host/`). So when the URL opens with `name:` and is not `host:port`, all of
+     * it up to its last `@` is masked: a few characters too many at worst, never a password.
+     * Otherwise user info is what comes before the last `@` of the authority.
      */
     protected static function describe(string $url): string
     {
@@ -69,11 +74,14 @@ abstract class RemoteFetchFailed extends MediaLibraryException
 
         if ($authority !== false) {
             $start = $authority + 3;
-            $end = strcspn($url, '/?#', $start) + $start;
-            $at = strrpos(substr($url, $start, $end - $start), '@');
+            $rest = substr($url, $start);
+            $password = ! str_starts_with($rest, '[')
+                && preg_match('/^[^\/?#@]*:/', $rest) === 1
+                && preg_match('/^[^\/?#@:]*:[0-9]*([\/?#]|$)/', $rest) !== 1;
+            $at = $password ? strrpos($rest, '@') : strrpos(substr($rest, 0, strcspn($rest, '/?#')), '@');
 
             if ($at !== false) {
-                $url = substr($url, 0, $start).'***'.substr($url, $start + $at);
+                $url = substr($url, 0, $start).'***'.substr($rest, $at);
             }
         }
 
