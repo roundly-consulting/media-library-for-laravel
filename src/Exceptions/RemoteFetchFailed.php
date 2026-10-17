@@ -1,0 +1,84 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\MediaLibrary\Exceptions;
+
+use RoundlyConsulting\MediaLibrary\Enums\RemoteFetchReason;
+
+/**
+ * A remote URL was refused or could not be fetched — by `MediaLibrary::remote()`, its validation
+ * rule, or `addFromUrl()`.
+ *
+ * - {@see RemoteFileRejected} is terminal: retrying cannot help (a blocked address, a 404).
+ * - {@see RemoteFileUnavailable} is retryable: the same call may succeed later (a 503, a timeout).
+ *
+ * Messages name the URL — with any user info masked — and never an address it resolved to: the
+ * address would tell whoever supplied the URL about the internal network.
+ */
+abstract class RemoteFetchFailed extends MediaLibraryException
+{
+    private const int MAX_URL_LENGTH = 2048;
+
+    private ?RemoteFetchReason $reason = null;
+
+    private ?int $status = null;
+
+    private ?int $retryAfter = null;
+
+    /** Whether the same call may succeed later. */
+    abstract public function retryable(): bool;
+
+    /** Why it failed. */
+    public function reason(): RemoteFetchReason
+    {
+        return $this->reason ?? $this->defaultReason();
+    }
+
+    /** The HTTP status the server answered, when that is why it failed. */
+    public function status(): ?int
+    {
+        return $this->status;
+    }
+
+    /** Seconds the server asked to wait before retrying (`Retry-After`), when it said. */
+    public function retryAfter(): ?int
+    {
+        return $this->retryAfter;
+    }
+
+    /** The reason of an exception built without one of the named constructors. */
+    abstract protected function defaultReason(): RemoteFetchReason;
+
+    protected function classify(RemoteFetchReason $reason, ?int $status = null, ?int $retryAfter = null): static
+    {
+        $this->reason = $reason;
+        $this->status = $status;
+        $this->retryAfter = $retryAfter;
+
+        return $this;
+    }
+
+    /**
+     * A URL as a message shows it: user info masked, control characters replaced, very long URLs
+     * shortened.
+     */
+    protected static function describe(string $url): string
+    {
+        $authority = strpos($url, '://');
+
+        if ($authority !== false) {
+            $start = $authority + 3;
+            $end = strcspn($url, '/?#', $start) + $start;
+            $at = strrpos(substr($url, $start, $end - $start), '@');
+
+            if ($at !== false) {
+                $url = substr($url, 0, $start).'***'.substr($url, $start + $at);
+            }
+        }
+
+        $url = (string) preg_replace('/[\x00-\x1F\x7F]/', '?', $url);
+
+        return strlen($url) > self::MAX_URL_LENGTH ? mb_strcut($url, 0, self::MAX_URL_LENGTH).'…' : $url;
+    }
+}

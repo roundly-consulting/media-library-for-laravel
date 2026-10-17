@@ -19,6 +19,18 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   `temporary_url` is refused next to `presign_endpoint`, because re-hosting a signed URL breaks its
   signature. Without `presign_endpoint` the disk is Laravel's stock S3 adapter. The S3 stack stays the
   host's: `league/flysystem-aws-s3-v3` is suggested, not required.
+- Status-aware remote errors. `RemoteFetchFailed` is the new base of `RemoteFileRejected` and the
+  new `RemoteFileUnavailable`, with `retryable()`, `status()`, `retryAfter()` and `reason()` (a
+  `RemoteFetchReason`). `RemoteFileRejected` is terminal (a refused URL, a 4xx other than 408/429,
+  too many redirects, a body over the cap, a TLS certificate that does not verify);
+  `RemoteFileUnavailable` is retryable (a 5xx, 408 or 429 with its `Retry-After`, a refused or reset
+  connection, a timeout, a host that does not resolve). Messages name the URL with any user info
+  masked, never an address it resolved to.
+
+### Changed
+
+- `RemoteFileRejected` now extends `RemoteFetchFailed` (still a `MediaLibraryException`), so
+  existing catches keep working.
 
 ## 1.1.4 - 2026-10-11
 
