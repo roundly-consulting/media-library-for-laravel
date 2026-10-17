@@ -74,10 +74,13 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   spellings (`2130706433`, `0x7f.1`, `0177.0.0.1`, `127.1`), a backslash, whitespace or `%` in the
   host, a backslash anywhere else, an IPv6 zone id, and the names `localhost` / `*.localhost`. A
   host with a non-ASCII character or a punycode (`xn--`) label goes through UTS #46 with ext-intl
-  (nontransitional, with the hyphen, bidi and joiner rules) and is refused without it; an address
+  (nontransitional, with the hyphen, bidi and joiner rules) and is refused without it (ext-intl is
+  now in `suggest`: without it even an ASCII `xn--` host is refused); an address
   it maps to (`８.８.８.８`, `127。0。0。1`) is refused, never normalised. A redirect `Location` with
   a backslash or a control character is refused, and a fragment-only one stays on the same
-  document. `media.remote.allowed_private_hosts` names match with or without a trailing dot.
+  document. `media.remote.allowed_private_hosts` names match with or without a trailing dot, and an
+  IPv6 entry may be bracketed (`[::1]`). An informational answer (`103 Early Hints`) is passed over:
+  the final answer is the one judged.
 - The blocked networks gain Azure's WireServer (`168.63.129.16`, reachable from every Azure VM and
   AKS node), `3fff::/20` (IPv6 documentation) and `5f00::/16` (SRv6), and an IPv4-translated
   address (`::ffff:0:a.b.c.d`) is judged by the IPv4 address it carries.

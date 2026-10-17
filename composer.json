@@ -45,6 +45,7 @@
     "suggest": {
         "ext-imagick": "Preferred image driver for generating media variants.",
         "ext-gd": "Fallback image driver for generating media variants when Imagick is unavailable.",
+        "ext-intl": "Lets the remote URL guard check internationalised and punycode (xn--) host names; without it, it refuses them.",
         "league/flysystem-aws-s3-v3": "Required for the presigned-s3 disk driver (S3 / S3-compatible storage with a separate presign endpoint)."
     },
     "autoload": {
