@@ -911,6 +911,18 @@
     {
       "url": "http://public.example/?q=a\\b",
       "verdict": "invalid_url"
+    },
+    {
+      "url": "http://xn--abc-.example/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://xn--tda-.example/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://a\ufeffb.example/",
+      "verdict": "non_canonical_host"
     }
   ],
   "redirect_statuses": [
