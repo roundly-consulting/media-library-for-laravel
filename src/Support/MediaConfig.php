@@ -163,13 +163,62 @@ final class MediaConfig
         return $clean;
     }
 
-    /** The `addMediaFromUrl()` HTTP timeout in seconds (at least 1 — 0 would mean none). */
+    /**
+     * The time budget, in seconds, of one remote fetch — every redirect hop included (at least 1;
+     * 0 would mean none).
+     */
     public static function remoteTimeout(): int
     {
         return Config::integer('media.remote.timeout', 30, 1);
     }
 
-    /** Whether `addMediaFromUrl()` refuses private and reserved network addresses (default on). */
+    /** The byte cap of `MediaLibrary::remote()->fetch()` (at least 1). */
+    public static function fetchMaxBytes(): int
+    {
+        return Config::integer('media.remote.fetch_max_bytes', 5_000_000, 1);
+    }
+
+    /** How many redirects a remote fetch follows; 0 follows none. */
+    public static function maxRedirects(): int
+    {
+        return Config::integer('media.remote.max_redirects', 5, 0);
+    }
+
+    /**
+     * The ports a remote URL may use, or null for any port (1–65535).
+     *
+     * @return list<int>|null
+     */
+    public static function allowedPorts(): ?array
+    {
+        $key = 'media.remote.allowed_ports';
+        $ports = self::unlessBlank(config($key));
+
+        if ($ports === null) {
+            return null;
+        }
+
+        if (! is_array($ports) || ! array_is_list($ports) || $ports === []) {
+            throw self::invalid($key, 'null (any port) or a non-empty list of ports from 1 to 65535', $ports);
+        }
+
+        $clean = [];
+
+        foreach ($ports as $port) {
+            // Validated under the setting's own key, so the message names it.
+            $clean[] = Config::for([$key => $port])->integer($key, 1, 1, 65535);
+        }
+
+        return array_values(array_unique($clean));
+    }
+
+    /** Whether `media.remote.headers` follow a redirect to another origin (default off). */
+    public static function forwardHeadersOnRedirect(): bool
+    {
+        return Config::boolean('media.remote.forward_headers_on_redirect', false);
+    }
+
+    /** Whether remote fetches refuse private and reserved network addresses (default on). */
     public static function blockPrivateNetworks(): bool
     {
         return Config::boolean('media.remote.block_private_networks', true);

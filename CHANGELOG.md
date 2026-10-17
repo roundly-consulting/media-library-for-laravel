@@ -26,11 +26,45 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   `RemoteFileUnavailable` is retryable (a 5xx, 408 or 429 with its `Retry-After`, a refused or reset
   connection, a timeout, a host that does not resolve). Messages name the URL with any user info
   masked, never an address it resolved to.
+- `MediaLibrary::remote()`: guarded server-side fetches of user-supplied URLs, with the guard
+  `addFromUrl()` uses and nothing stored. `fetch($url, maxBytes:, timeout:, maxRedirects:, accept:)`
+  returns a `RemoteResponse` (body, status, content type, final URL, headers) for a 2xx answer and
+  throws a `RemoteFetchFailed` for anything else. `vet($url)` returns the guard's verdict without
+  fetching: a `VettedUrl` (the canonical URL, host, port, every vetted address and a
+  `resolveEntry()` pin for hosts that build their own request). `isPrivateAddress($address)` judges
+  one address. The same calls exist as `FetchRemoteUrlAction` and `VetRemoteUrlAction`. Under
+  `MediaLibrary::fake()` they stay real and `Http::fake()` answers them.
+- `media.remote.fetch_max_bytes` (the `fetch()` byte cap, default 5 MB), `media.remote.max_redirects`
+  (default 5, before a fixed limit; `0` follows none), `media.remote.allowed_ports` (default any
+  port) and `media.remote.forward_headers_on_redirect` (default off).
+- The blocked-network table and its test vectors are a contract fixture shared with the Node twin
+  (`tests/Fixtures/contract/blocked-networks.json`), so both judge the same destinations.
 
 ### Changed
 
 - `RemoteFileRejected` now extends `RemoteFetchFailed` (still a `MediaLibraryException`), so
   existing catches keep working.
+- `media.remote.timeout` is now one budget for the whole fetch, every redirect hop included. Before,
+  each of up to six requests got the full timeout.
+
+### Security
+
+- Remote fetches, `addFromUrl()` included, send `media.remote.headers` only to the URL's own origin
+  (scheme, host and port). A redirect to another origin no longer receives them, so an
+  `Authorization` header cannot leak to whatever host the first one redirects to; set
+  `media.remote.forward_headers_on_redirect` to send them anyway.
+- Guarded fetches bypass the environment's `HTTP_PROXY` / `HTTPS_PROXY`: a proxy resolves the host
+  name itself, which made the private-network guard and the address pin moot.
+- The connection is pinned to every vetted address, not only the first, so a host whose first
+  address is down fails over only to addresses the guard checked.
+- A URL is parsed and rebuilt by the guard before any request, so PHP and curl can no longer read a
+  different host into it. Refused: user info, numeric IPv4 spellings (`2130706433`, `0x7f.1`,
+  `0177.0.0.1`, `127.1`), a backslash, whitespace or `%` in the host, an IPv6 zone id, and the names
+  `localhost` / `*.localhost`. An internationalised host name is converted with ext-intl, and
+  refused without it.
+- The blocked networks gain Azure's WireServer (`168.63.129.16`, reachable from every Azure VM and
+  AKS node), `3fff::/20` (IPv6 documentation) and `5f00::/16` (SRv6), and an IPv4-translated
+  address (`::ffff:0:a.b.c.d`) is judged by the IPv4 address it carries.
 
 ## 1.1.4 - 2026-10-11
 

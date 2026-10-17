@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Facade;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
+use RoundlyConsulting\MediaLibrary\Handles\RemoteUrls;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
@@ -26,6 +27,7 @@ use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
  * @method static PendingFileAdd addFromStream(resource $stream)
  * @method static ModelMedia for(Model $model)
  * @method static MediaVariants variants(Media $media)
+ * @method static RemoteUrls remote()
  * @method static Media attach(Media $media, ?Model $to = null, string $bucket = 'default')
  * @method static Media bindDraft(string $token, Model $to, string $bucket = 'default')
  * @method static Media move(Media $media, ?Model $to = null, string $bucket = 'default', ?string $disk = null)

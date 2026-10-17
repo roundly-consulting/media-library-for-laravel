@@ -32,4 +32,23 @@ if ($path === '/endless') {
     return;
 }
 
+if ($path === '/gzip-bomb') {
+    // 2 MiB of 'a', a few KiB on the wire: only a cap on DECODED bytes stops it.
+    $body = (string) gzencode(str_repeat('a', 2 * 1048576), 9);
+    header('Content-Type: text/plain');
+    header('Content-Encoding: gzip');
+    header('Content-Length: '.strlen($body));
+    echo $body;
+
+    return;
+}
+
+if ($path === '/unavailable') {
+    header('Retry-After: 7');
+    http_response_code(503);
+    echo 'come back later';
+
+    return;
+}
+
 http_response_code(404);

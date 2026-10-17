@@ -66,15 +66,34 @@ return [
     // overrides it; null => no package-level limit, otherwise at least 1.
     'max_file_size' => 1024 * 1024 * 256,
 
-    // addMediaFromUrl: extra request headers / timeout for the Http client.
+    // Remote fetches: addMediaFromUrl() and MediaLibrary::remote()->fetch().
     'remote' => [
+        // Extra request headers, sent to the URL's own origin only (see forward_headers_on_redirect).
         'headers' => [],
-        'timeout' => 30,  // seconds, at least 1 (0 would mean no timeout)
+
+        // The time budget of one fetch, in seconds (at least 1): every redirect hop shares it.
+        'timeout' => 30,
+
+        // The byte cap of MediaLibrary::remote()->fetch() (at least 1); max_file_size caps
+        // addMediaFromUrl(). Counted after decoding, so a compressed bomb stops at the cap too.
+        'fetch_max_bytes' => 5_000_000,
+
+        // Redirects a fetch follows, each one vetted like the first hop; 0 follows none.
+        'max_redirects' => 5,
+
+        // null => any port 1-65535; otherwise a list of the ports a URL may use, e.g. [80, 443].
+        'allowed_ports' => null,
+
+        // Send `headers` to another origin a redirect points at as well. Off by default: an
+        // Authorization header meant for one host must not reach whatever host it redirects to.
+        'forward_headers_on_redirect' => false,
 
         // SSRF guard: refuse URLs whose host is (or resolves to, or redirects to) a private,
-        // loopback, link-local, carrier-grade NAT, cloud-metadata or other reserved address. Each
-        // hop is resolved once and the connection pinned to the vetted address. false turns the
-        // guard off — only for URLs you trust completely.
+        // loopback, link-local, carrier-grade NAT, cloud-metadata or other reserved address, and
+        // `localhost` by name. Each hop is canonicalised, resolved once, pinned to every vetted
+        // address and sent without the environment's proxy. false turns the guard off for
+        // fetches — only for URLs you trust completely. vet() and the SafeRemoteUrl rule judge
+        // either way.
         'block_private_networks' => true,
 
         // Exempt from the guard: host names (exact) and addresses or ranges, e.g.

@@ -13,9 +13,11 @@ use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenDeleted;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaDoesNotBelongToModel;
+use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileRejected;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
+use RoundlyConsulting\MediaLibrary\Handles\RemoteUrls;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Tests\Fixtures\TestUser;
@@ -349,4 +351,32 @@ it('scopes any eloquent model, without bucket rules when it declares none', func
     expect($media->model_type)->toBe($owner->getMorphClass())
         ->and(MediaLibrary::for($owner)->url('empty'))->toBe('')
         ->and(MediaLibrary::for($owner)->url('anything'))->toBe($media->getUrl());
+});
+
+// --- remote(): guarded fetches of user-supplied urls ---
+
+it('fetches, vets and judges addresses through remote()', function (): void {
+    Http::fake(['*' => Http::response('remote page', 200)]);
+
+    expect(MediaLibrary::remote())->toBeInstanceOf(RemoteUrls::class)
+        ->and(MediaLibrary::remote()->fetch('https://example.com/page')->body)->toBe('remote page')
+        ->and(MediaLibrary::remote()->vet('https://example.com/page')->addresses)->toBe(['93.184.216.34'])
+        ->and(MediaLibrary::remote()->isPrivateAddress('10.0.0.1'))->toBeTrue()
+        ->and(MediaLibrary::remote()->isPrivateAddress('8.8.8.8'))->toBeFalse();
+});
+
+it('serves remote() from the injected manager', function (): void {
+    Http::fake(['*' => Http::response('injected', 200)]);
+
+    expect(app(MediaLibraryManager::class)->remote()->fetch('https://example.com/page')->body)->toBe('injected');
+});
+
+it('keeps remote() real under the fake, so Http::fake() answers it', function (): void {
+    MediaLibrary::fake();
+    Http::fake(['*' => Http::response('faked over http', 200)]);
+
+    expect(MediaLibrary::remote()->fetch('https://example.com/page')->body)->toBe('faked over http')
+        ->and(fn () => MediaLibrary::remote()->fetch('http://169.254.169.254/'))->toThrow(RemoteFileRejected::class);
+
+    Http::assertSentCount(1);
 });

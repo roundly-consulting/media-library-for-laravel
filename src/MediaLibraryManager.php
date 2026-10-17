@@ -26,6 +26,7 @@ use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
+use RoundlyConsulting\MediaLibrary\Handles\RemoteUrls;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
@@ -39,6 +40,7 @@ use SensitiveParameter;
  * - `for($model)` scopes adds, reads and deletes to one owning model.
  * - Flat verbs (`attach`, `bindDraft`, `move`, `copy`, `replace`, `delete`, `regenerate`, …) act
  *   on the media they are handed; `variants($media)` groups the variant operations.
+ * - `remote()` fetches and vets user-supplied URLs with the guard `addFromUrl()` uses.
  *
  * Every mutation — from the facade, a handle, the `InteractsWithMedia` trait or a `Media` model
  * method — funnels through one of the flat verbs here (adds through `store()`), each of which
@@ -106,6 +108,15 @@ class MediaLibraryManager
     public function variants(Media $media): MediaVariants
     {
         return new MediaVariants($this, $media);
+    }
+
+    /**
+     * Guarded server-side fetches of user-supplied URLs: `fetch()`, `vet()`, `isPrivateAddress()`.
+     * Nothing is stored, so the fake keeps this real (`Http::fake()` answers it).
+     */
+    public function remote(): RemoteUrls
+    {
+        return new RemoteUrls($this->container);
     }
 
     /**

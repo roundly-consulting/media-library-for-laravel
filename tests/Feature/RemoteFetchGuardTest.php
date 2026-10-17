@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileRejected;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Support\HostResolver;
@@ -250,3 +253,97 @@ it('stops a real redirect to an address the guard does not allow', function (): 
         $server->stop();
     }
 })->skip(! extension_loaded('curl') || ! function_exists('proc_open'), 'needs ext-curl and proc_open');
+
+/*
+ * What addFromUrl() inherits from the shared hop loop behind MediaLibrary::remote()->fetch(): its
+ * results and exceptions stay as they were, its hops get the fetch's hardening.
+ */
+
+it('refuses the environment proxy and pins every vetted address', function (): void {
+    resolving(['dual.example.com' => ['93.184.216.34', '151.101.1.1']]);
+    $sent = [];
+
+    Http::fake(function (Request $request, array $options) use (&$sent) {
+        $sent[] = $options;
+
+        return Http::response('bytes', 200);
+    });
+
+    MediaLibrary::addFromUrl('https://dual.example.com/a.txt')->toBucket('library');
+
+    expect($sent[0]['proxy'])->toBe('')
+        ->and($sent[0]['curl'][CURLOPT_RESOLVE])->toBe(['dual.example.com:443:93.184.216.34,151.101.1.1']);
+});
+
+it('keeps the configured headers away from another origin a redirect points at', function (): void {
+    config()->set('media.remote.headers', ['Authorization' => 'Bearer origin-token']);
+    resolving(['a.example.com' => ['93.184.216.34'], 'cdn.example.net' => ['151.101.1.1']]);
+    $sent = [];
+
+    Http::fake(function (Request $request) use (&$sent) {
+        $sent[$request->url()] = $request->header('Authorization');
+
+        return str_contains($request->url(), 'a.example.com')
+            ? Http::response('', 302, ['Location' => 'https://cdn.example.net/photo.txt'])
+            : Http::response('photo bytes', 200);
+    });
+
+    MediaLibrary::addFromUrl('https://a.example.com/photo.txt')->toBucket('library');
+
+    expect($sent)->toBe([
+        'https://a.example.com/photo.txt' => ['Bearer origin-token'],
+        'https://cdn.example.net/photo.txt' => [],
+    ]);
+});
+
+it('refuses a url the guard cannot judge the way curl would', function (string $url): void {
+    Http::fake(['*' => Http::response('secret', 200)]);
+
+    expect(fn () => MediaLibrary::addFromUrl($url))->toThrow(RemoteFileRejected::class);
+
+    Http::assertNothingSent();
+})->with([
+    'credentials' => ['http://user:pw@example.com/x.png'],
+    'a numeric host' => ['http://2130706433/x.png'],
+    'a backslash' => ['http://example.com\@127.0.0.1/x.png'],
+    'localhost by name' => ['http://localhost/x.png'],
+]);
+
+it('spends one timeout budget across the redirects of an add', function (): void {
+    Carbon::setTestNow('2026-10-17 12:00:00');
+    resolving(['a.example.com' => ['93.184.216.34']]);
+    config()->set('media.remote.timeout', 20);
+    $timeouts = [];
+
+    Http::fake(function (Request $request, array $options) use (&$timeouts) {
+        $timeouts[] = $options['timeout'];
+        Carbon::setTestNow(Carbon::now()->addSeconds(10));
+
+        return Http::response('', 302, ['Location' => 'https://a.example.com/next']);
+    });
+
+    try {
+        expect(fn () => MediaLibrary::addFromUrl('https://a.example.com/start'))->toThrow(ConnectionException::class, 'within 20 seconds');
+    } finally {
+        Carbon::setTestNow();
+    }
+
+    expect($timeouts)->toBe([20.0, 10.0]);
+});
+
+it('follows media.remote.max_redirects', function (): void {
+    config()->set('media.remote.max_redirects', 1);
+    resolving(['loop.example.com' => ['93.184.216.34']]);
+    Http::fake(['*' => Http::response('', 302, ['Location' => 'https://loop.example.com/again'])]);
+
+    expect(fn () => MediaLibrary::addFromUrl('https://loop.example.com/start'))
+        ->toThrow(RemoteFileRejected::class, 'more than 1 times');
+
+    Http::assertSentCount(2);
+});
+
+it('still reports a non-2xx answer as a missing file', function (): void {
+    Http::fake(['*' => Http::response('gone', 404)]);
+
+    expect(fn () => MediaLibrary::addFromUrl('https://example.com/a.txt'))->toThrow(FileDoesNotExist::class);
+});

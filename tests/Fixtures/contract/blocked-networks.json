@@ -1,0 +1,774 @@
+{
+  "version": 1,
+  "blocked_ranges": [
+    "0.0.0.0/8",
+    "10.0.0.0/8",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+    "168.63.129.16/32",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.0.0.0/24",
+    "192.0.2.0/24",
+    "192.88.99.0/24",
+    "192.168.0.0/16",
+    "198.18.0.0/15",
+    "198.51.100.0/24",
+    "203.0.113.0/24",
+    "224.0.0.0/4",
+    "240.0.0.0/4",
+    "64:ff9b:1::/48",
+    "100::/64",
+    "2001::/23",
+    "2001:db8::/32",
+    "3fff::/20",
+    "5f00::/16",
+    "fc00::/7",
+    "fe80::/10",
+    "fec0::/10",
+    "ff00::/8"
+  ],
+  "ipv4_embedding": [
+    {
+      "range": "::ffff:0:0/96",
+      "offset": 12
+    },
+    {
+      "range": "::/96",
+      "offset": 12
+    },
+    {
+      "range": "64:ff9b::/96",
+      "offset": 12
+    },
+    {
+      "range": "::ffff:0:0:0/96",
+      "offset": 12
+    },
+    {
+      "range": "2002::/16",
+      "offset": 2
+    }
+  ],
+  "blocked_hostnames": [
+    "localhost"
+  ],
+  "blocked_hostname_suffixes": [
+    ".localhost"
+  ],
+  "dns": {
+    "public.example": [
+      "93.184.216.34"
+    ],
+    "inward.example": [
+      "10.0.0.5"
+    ],
+    "split.example": [
+      "93.184.216.34",
+      "127.0.0.1"
+    ],
+    "metadata.example": [
+      "169.254.169.254"
+    ]
+  },
+  "addresses": [
+    {
+      "address": "0.0.0.0",
+      "blocked": true
+    },
+    {
+      "address": "0.255.255.255",
+      "blocked": true
+    },
+    {
+      "address": "1.0.0.0",
+      "blocked": false
+    },
+    {
+      "address": "10.0.0.0",
+      "blocked": true
+    },
+    {
+      "address": "10.255.255.255",
+      "blocked": true
+    },
+    {
+      "address": "9.255.255.255",
+      "blocked": false
+    },
+    {
+      "address": "11.0.0.0",
+      "blocked": false
+    },
+    {
+      "address": "100.64.0.0",
+      "blocked": true
+    },
+    {
+      "address": "100.127.255.255",
+      "blocked": true
+    },
+    {
+      "address": "100.100.100.200",
+      "blocked": true
+    },
+    {
+      "address": "100.63.255.255",
+      "blocked": false
+    },
+    {
+      "address": "100.128.0.0",
+      "blocked": false
+    },
+    {
+      "address": "127.0.0.0",
+      "blocked": true
+    },
+    {
+      "address": "127.0.0.1",
+      "blocked": true
+    },
+    {
+      "address": "127.255.255.255",
+      "blocked": true
+    },
+    {
+      "address": "126.255.255.255",
+      "blocked": false
+    },
+    {
+      "address": "128.0.0.0",
+      "blocked": false
+    },
+    {
+      "address": "168.63.129.16",
+      "blocked": true
+    },
+    {
+      "address": "168.63.129.15",
+      "blocked": false
+    },
+    {
+      "address": "168.63.129.17",
+      "blocked": false
+    },
+    {
+      "address": "169.254.0.0",
+      "blocked": true
+    },
+    {
+      "address": "169.254.169.254",
+      "blocked": true
+    },
+    {
+      "address": "169.254.255.255",
+      "blocked": true
+    },
+    {
+      "address": "169.253.255.255",
+      "blocked": false
+    },
+    {
+      "address": "169.255.0.0",
+      "blocked": false
+    },
+    {
+      "address": "172.16.0.0",
+      "blocked": true
+    },
+    {
+      "address": "172.31.255.255",
+      "blocked": true
+    },
+    {
+      "address": "172.15.255.255",
+      "blocked": false
+    },
+    {
+      "address": "172.32.0.0",
+      "blocked": false
+    },
+    {
+      "address": "192.0.0.0",
+      "blocked": true
+    },
+    {
+      "address": "192.0.0.192",
+      "blocked": true
+    },
+    {
+      "address": "192.0.0.255",
+      "blocked": true
+    },
+    {
+      "address": "192.0.1.0",
+      "blocked": false
+    },
+    {
+      "address": "192.0.2.0",
+      "blocked": true
+    },
+    {
+      "address": "192.0.2.255",
+      "blocked": true
+    },
+    {
+      "address": "192.0.3.0",
+      "blocked": false
+    },
+    {
+      "address": "192.88.99.0",
+      "blocked": true
+    },
+    {
+      "address": "192.88.99.255",
+      "blocked": true
+    },
+    {
+      "address": "192.88.98.255",
+      "blocked": false
+    },
+    {
+      "address": "192.88.100.0",
+      "blocked": false
+    },
+    {
+      "address": "192.168.0.0",
+      "blocked": true
+    },
+    {
+      "address": "192.168.255.255",
+      "blocked": true
+    },
+    {
+      "address": "192.167.255.255",
+      "blocked": false
+    },
+    {
+      "address": "192.169.0.0",
+      "blocked": false
+    },
+    {
+      "address": "198.18.0.0",
+      "blocked": true
+    },
+    {
+      "address": "198.19.255.255",
+      "blocked": true
+    },
+    {
+      "address": "198.17.255.255",
+      "blocked": false
+    },
+    {
+      "address": "198.20.0.0",
+      "blocked": false
+    },
+    {
+      "address": "198.51.100.0",
+      "blocked": true
+    },
+    {
+      "address": "198.51.100.255",
+      "blocked": true
+    },
+    {
+      "address": "198.51.99.255",
+      "blocked": false
+    },
+    {
+      "address": "198.51.101.0",
+      "blocked": false
+    },
+    {
+      "address": "203.0.113.0",
+      "blocked": true
+    },
+    {
+      "address": "203.0.113.255",
+      "blocked": true
+    },
+    {
+      "address": "203.0.112.255",
+      "blocked": false
+    },
+    {
+      "address": "203.0.114.0",
+      "blocked": false
+    },
+    {
+      "address": "224.0.0.0",
+      "blocked": true
+    },
+    {
+      "address": "239.255.255.255",
+      "blocked": true
+    },
+    {
+      "address": "223.255.255.255",
+      "blocked": false
+    },
+    {
+      "address": "240.0.0.0",
+      "blocked": true
+    },
+    {
+      "address": "255.255.255.255",
+      "blocked": true
+    },
+    {
+      "address": "1.1.1.1",
+      "blocked": false
+    },
+    {
+      "address": "8.8.8.8",
+      "blocked": false
+    },
+    {
+      "address": "93.184.216.34",
+      "blocked": false
+    },
+    {
+      "address": "::",
+      "blocked": true
+    },
+    {
+      "address": "::1",
+      "blocked": true
+    },
+    {
+      "address": "::127.0.0.1",
+      "blocked": true
+    },
+    {
+      "address": "::8.8.8.8",
+      "blocked": false
+    },
+    {
+      "address": "::ffff:127.0.0.1",
+      "blocked": true
+    },
+    {
+      "address": "::ffff:7f00:1",
+      "blocked": true
+    },
+    {
+      "address": "::ffff:169.254.169.254",
+      "blocked": true
+    },
+    {
+      "address": "::ffff:a00:1",
+      "blocked": true
+    },
+    {
+      "address": "::ffff:8.8.8.8",
+      "blocked": false
+    },
+    {
+      "address": "64:ff9b::7f00:1",
+      "blocked": true
+    },
+    {
+      "address": "64:ff9b::a00:1",
+      "blocked": true
+    },
+    {
+      "address": "64:ff9b::808:808",
+      "blocked": false
+    },
+    {
+      "address": "64:ff9b::8.8.8.8",
+      "blocked": false
+    },
+    {
+      "address": "64:ff9b:1::1",
+      "blocked": true
+    },
+    {
+      "address": "::ffff:0:7f00:1",
+      "blocked": true
+    },
+    {
+      "address": "::ffff:0:808:808",
+      "blocked": false
+    },
+    {
+      "address": "2002:7f00:1::",
+      "blocked": true
+    },
+    {
+      "address": "2002:a9fe:a9fe::1",
+      "blocked": true
+    },
+    {
+      "address": "2002:808:808::",
+      "blocked": false
+    },
+    {
+      "address": "100::",
+      "blocked": true
+    },
+    {
+      "address": "100::ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "100:0:0:1::",
+      "blocked": false
+    },
+    {
+      "address": "2001::1",
+      "blocked": true
+    },
+    {
+      "address": "2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "2001:200::",
+      "blocked": false
+    },
+    {
+      "address": "2001:db8::1",
+      "blocked": true
+    },
+    {
+      "address": "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "2001:db9::",
+      "blocked": false
+    },
+    {
+      "address": "3fff::1",
+      "blocked": true
+    },
+    {
+      "address": "3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "3fff:1000::",
+      "blocked": false
+    },
+    {
+      "address": "5f00::1",
+      "blocked": true
+    },
+    {
+      "address": "5f00:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "5f01::",
+      "blocked": false
+    },
+    {
+      "address": "fc00::",
+      "blocked": true
+    },
+    {
+      "address": "fd00:ec2::254",
+      "blocked": true
+    },
+    {
+      "address": "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": false
+    },
+    {
+      "address": "fe80::1",
+      "blocked": true
+    },
+    {
+      "address": "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "fe80::1%eth0",
+      "blocked": true
+    },
+    {
+      "address": "fec0::1",
+      "blocked": true
+    },
+    {
+      "address": "feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "ff02::1",
+      "blocked": true
+    },
+    {
+      "address": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "blocked": true
+    },
+    {
+      "address": "2606:4700:4700::1111",
+      "blocked": false
+    },
+    {
+      "address": "2001:4860:4860::8888",
+      "blocked": false
+    },
+    {
+      "address": "2a00:1450:4001:82a::200e",
+      "blocked": false
+    },
+    {
+      "address": "",
+      "blocked": true
+    },
+    {
+      "address": "not-an-ip",
+      "blocked": true
+    },
+    {
+      "address": "example.com",
+      "blocked": true
+    },
+    {
+      "address": "1.2.3",
+      "blocked": true
+    },
+    {
+      "address": "127.1",
+      "blocked": true
+    },
+    {
+      "address": "0177.0.0.1",
+      "blocked": true
+    },
+    {
+      "address": "1.2.3.256",
+      "blocked": true
+    },
+    {
+      "address": "gggg::1",
+      "blocked": true
+    }
+  ],
+  "urls": [
+    {
+      "url": "http://public.example/",
+      "verdict": "ok"
+    },
+    {
+      "url": "https://public.example:8443/path?q=1#fragment",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://PUBLIC.Example./",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://public.example:65535/",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://8.8.8.8/",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://[2606:4700:4700::1111]/",
+      "verdict": "ok"
+    },
+    {
+      "url": "http://[64:ff9b::808:808]/",
+      "verdict": "ok"
+    },
+    {
+      "url": "not a url",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "//public.example/",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http:public.example",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http:///path",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "http://public.example:abc/",
+      "verdict": "invalid_url"
+    },
+    {
+      "url": "gopher://public.example/",
+      "verdict": "scheme"
+    },
+    {
+      "url": "ftp://public.example/",
+      "verdict": "scheme"
+    },
+    {
+      "url": "file:///etc/passwd",
+      "verdict": "scheme"
+    },
+    {
+      "url": "javascript:alert(1)",
+      "verdict": "scheme"
+    },
+    {
+      "url": "http://user:pw@public.example/",
+      "verdict": "credentials"
+    },
+    {
+      "url": "http://user@public.example/",
+      "verdict": "credentials"
+    },
+    {
+      "url": "http://a@b@public.example/",
+      "verdict": "credentials"
+    },
+    {
+      "url": "http://public.example@127.0.0.1/",
+      "verdict": "credentials"
+    },
+    {
+      "url": "http://2130706433/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://0x7f000001/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://0x7f.1/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://0177.0.0.1/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://127.1/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://1.2.3.4.5/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://134744072/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://[fe80::1%25eth0]/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://public%2eexample/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://public.example\\@127.0.0.1/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://pub lic.example/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://a..b/",
+      "verdict": "non_canonical_host"
+    },
+    {
+      "url": "http://public.example:0/",
+      "verdict": "port"
+    },
+    {
+      "url": "http://public.example:65536/",
+      "verdict": "port"
+    },
+    {
+      "url": "http://localhost/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://LOCALHOST./",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://api.localhost/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://127.0.0.1/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://127.0.0.1.:8080/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://127.0.0.1#@public.example/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://0.0.0.0/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://[::]/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://[::1]/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://[::ffff:127.0.0.1]/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://[::ffff:a00:1]/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://[64:ff9b::7f00:1]/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://[2002:7f00:1::]/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://169.254.169.254/latest/meta-data/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://168.63.129.16/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://inward.example/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://split.example/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://metadata.example/",
+      "verdict": "blocked"
+    },
+    {
+      "url": "http://nowhere.example/",
+      "verdict": "unresolved"
+    }
+  ]
+}
