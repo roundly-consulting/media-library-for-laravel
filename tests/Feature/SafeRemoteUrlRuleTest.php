@@ -29,24 +29,26 @@ it('passes a public url', function (): void {
     expect(safeUrlErrors('https://public.example/doc'))->toBe([]);
 });
 
-it('fails an unsafe url with its translated reason', function (mixed $url, string $message): void {
-    expect(safeUrlErrors($url))->toBe([$message]);
+it('fails every unsafe url with one message, whatever the reason', function (mixed $url): void {
+    // One message for every refusal: telling "private" from "not found" would tell a user which
+    // internal names exist. The exception behind it keeps the exact reason.
+    expect(safeUrlErrors($url))->toBe(['The source field must be a public http or https URL that can be reached.']);
 })->with([
-    'private' => ['http://inward.example/', 'The source field must not point at a private or reserved network address.'],
-    'loopback literal' => ['http://127.0.0.1/', 'The source field must not point at a private or reserved network address.'],
-    'scheme' => ['ftp://public.example/', 'The source field must use http or https.'],
-    'credentials' => ['https://user:pw@public.example/', 'The source field must not contain a user name or password.'],
-    'numeric host' => ['http://2130706433/', 'The source field must name its host by a domain name or a standard IP address.'],
-    'port' => ['http://public.example:0/', 'The source field uses a port that is not allowed.'],
-    'unresolved' => ['http://nowhere.example/', 'The host in the source field could not be found.'],
-    'not a url' => ['not a url', 'The source field must be a valid http or https URL.'],
-    'not a string' => [['https://public.example/'], 'The source field must be a valid http or https URL.'],
+    'private' => ['http://inward.example/'],
+    'loopback literal' => ['http://127.0.0.1/'],
+    'scheme' => ['ftp://public.example/'],
+    'credentials' => ['https://user:pw@public.example/'],
+    'numeric host' => ['http://2130706433/'],
+    'port' => ['http://public.example:0/'],
+    'unresolved' => ['http://nowhere.example/'],
+    'not a url' => ['not a url'],
+    'not a string' => [['https://public.example/']],
 ]);
 
 it('speaks slovak', function (): void {
     app()->setLocale('sk');
 
-    expect(safeUrlErrors('http://inward.example/'))->toBe(['Pole source nesmie smerovať na súkromnú ani vyhradenú sieťovú adresu.']);
+    expect(safeUrlErrors('http://inward.example/'))->toBe(['Pole source musí byť verejná a dostupná URL adresa s protokolom http alebo https.']);
 });
 
 it('vets through the facade root, so a fake still judges', function (): void {

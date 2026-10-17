@@ -42,13 +42,13 @@ it('keeps the placeholders of every line', function (string $file): void {
 })->with('translation files');
 
 it('translates through the package namespace', function (): void {
-    expect(trans('media::validation.remote_url.port', ['attribute' => 'url']))->toBe('The url field uses a port that is not allowed.');
+    expect(trans('media::validation.remote_url', ['attribute' => 'url']))->toBe('The url field must be a public http or https URL that can be reached.');
 
     app()->setLocale('sk');
 
-    expect(trans('media::validation.remote_url.port', ['attribute' => 'url']))->toBe('Pole url používa nepovolený port.');
+    expect(trans('media::validation.remote_url', ['attribute' => 'url']))->toBe('Pole url musí byť verejná a dostupná URL adresa s protokolom http alebo https.');
 });
 
-it('has a line for every verdict the guard can give', function (): void {
-    expect(array_keys((require __DIR__.'/../../resources/lang/en/validation.php')['remote_url']))->toBe(['invalid_url', 'scheme', 'credentials', 'non_canonical_host', 'blocked', 'port', 'unresolved']);
+it('has one line for every refusal, so the reason stays private', function (): void {
+    expect((require __DIR__.'/../../resources/lang/en/validation.php')['remote_url'])->toBeString();
 });
