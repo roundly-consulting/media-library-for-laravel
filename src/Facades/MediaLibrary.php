@@ -14,6 +14,7 @@ use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
 use RoundlyConsulting\MediaLibrary\Handles\RemoteUrls;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Testing\DnsFake;
 use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
 use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
 
@@ -62,6 +63,26 @@ final class MediaLibrary extends Facade
         self::swap($fake);
 
         return $fake;
+    }
+
+    /**
+     * Answer the remote URL guard's DNS lookups from a table — for `addFromUrl()`, `remote()` and
+     * the `SafeRemoteUrl` rule alike — so a test never reaches real DNS: a name the table was not
+     * given does not resolve. Pin more with `->resolve($host, $addresses)`; pinned addresses are
+     * judged like real answers, so a private one is still refused. Only DNS is faked — answer the
+     * requests with `Http::fake()`. Independent of {@see self::fake()}; a second call in the same
+     * test returns the same table, and the next test starts without one.
+     *
+     * ```php
+     * MediaLibrary::fakeDns(['docs.example' => '93.184.216.34']);
+     * Http::fake(['docs.example/*' => Http::response('hello')]);
+     * ```
+     *
+     * @param  array<string, string|list<string>>  $records  host name => its address(es); `[]` = unresolvable
+     */
+    public static function fakeDns(array $records = []): DnsFake
+    {
+        return DnsFake::install(app(), $records);
     }
 
     protected static function getFacadeAccessor(): string

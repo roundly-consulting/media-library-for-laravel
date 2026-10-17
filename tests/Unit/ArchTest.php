@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaLibraryException;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Testing\DnsFake;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
@@ -160,6 +162,8 @@ arch('src uses only allowed namespaces')
         'Imagick',
         'ImagickPixel',
         'IteratorAggregate',
+        // `Testing\DnsFake` refuses a pin the guard could never be asked for (a test's mistake).
+        'InvalidArgumentException',
         // An invariant broken, never caught: the presign client sending, the framework's S3 factory
         // changing shape. Not a RuntimeException, so URL resolution never degrades past it.
         'LogicException',
@@ -180,6 +184,14 @@ arch('src uses only allowed namespaces')
     ])
     // `Testing\MediaLibraryFake` ships PHPUnit asserts, loaded only when a test calls `MediaLibrary::fake()`.
     ->ignoring('PHPUnit\Framework\Assert');
+
+/**
+ * The DNS table is a testing API: only `MediaLibrary::fakeDns()` installs it. Nothing in the
+ * package (the provider included) wires it in, so it is never active unless a test asks for it.
+ */
+arch('the dns fake is reached only through MediaLibrary::fakeDns()')
+    ->expect(DnsFake::class)
+    ->toOnlyBeUsedIn([MediaLibrary::class]);
 
 /** Kept — bespoke: the action shape, which no preset expresses. */
 arch('actions expose a single execute method')

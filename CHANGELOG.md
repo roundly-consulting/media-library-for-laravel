@@ -6,6 +6,21 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Added
+
+- `MediaLibrary::fakeDns()`: a public testing API that answers the remote URL guard's DNS lookups
+  from a table — for `addFromUrl()`, `MediaLibrary::remote()` and the `SafeRemoteUrl` rule alike —
+  so a test never reaches real DNS and no longer needs the package's internal resolver. Pass a
+  table (`['docs.example' => '93.184.216.34']`) or pin fluently on the returned `Testing\DnsFake`
+  with `resolve($host, $addresses)` and `unresolvable($host)`. A name the table was not given does
+  not resolve; pinned addresses are judged like real answers, so a private one is still refused.
+  Names match the way the guard writes them (any case, a trailing dot, punycode for an
+  internationalised name), and a pin the guard could never be asked for (an address literal, a
+  port, a path) throws. `lookups()`, `assertLookedUp($host, times:)`, `assertNotLookedUp($host)`
+  and `assertNothingLookedUp()` check what was looked up. Only DNS is faked: answer the requests
+  with `Http::fake()`. It works with or without `MediaLibrary::fake()`, a second call in the same
+  test returns the same table, and the table ends with the test's application container.
+
 ## 1.2.0 - 2026-10-17
 
 ### Added
