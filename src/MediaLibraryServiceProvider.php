@@ -46,6 +46,7 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
             ->name('media')
             ->hasConfigFile()
             ->hasMigrations()
+            ->hasTranslations()
             ->hasRoutes('media.php', enabledVia: 'media.stream.enabled')
             ->hasCommands([
                 RegenerateVariantsCommand::class,

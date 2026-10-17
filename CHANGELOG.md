@@ -39,6 +39,9 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   port) and `media.remote.forward_headers_on_redirect` (default off).
 - The blocked-network table and its test vectors are a contract fixture shared with the Node twin
   (`tests/Fixtures/contract/blocked-networks.json`), so both judge the same destinations.
+- A `SafeRemoteUrl` validation rule for URLs users hand in for a server-side fetch: it fails with a
+  translated message per reason (`media::validation.remote_url.*`). These are the package's first
+  language files, in English and Slovak, publishable with the `media-translations` tag.
 
 ### Changed
 
