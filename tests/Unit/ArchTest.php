@@ -101,6 +101,9 @@ ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\MediaLibrary', [
  */
 ArchPresets::modelsResolveThroughSeam(__DIR__.'/../../src', 'Support');
 
+// A host swap reaches `Media::factory()` too: the factory builds the configured model.
+ArchPresets::factoriesResolveThroughSeam(__DIR__.'/../../database/factories', __DIR__.'/../../src', 'Support');
+
 /**
  * The morph-key seam, guarded. Media's polymorphic owner is stored as explicit
  * `model_type`/`model_id` string columns — a string `model_id` that stores an integer, uuid or
