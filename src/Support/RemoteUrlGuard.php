@@ -17,20 +17,24 @@ use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileUnavailable;
  * would vet one host while curl dials another. Anything a parser could read two ways is refused,
  * and the request URL is rebuilt from the parts that were vetted. In order, first failure wins:
  *
- * 1. `invalid_url` — no `scheme:`; 2. `scheme` — not http(s); 3. `invalid_url` — no `//`
+ * 1. `invalid_url` — a control character (C0 or DEL) anywhere in the URL: WHATWG parsers strip a
+ *    tab or newline silently, so it is refused rather than guessed at;
+ * 2. `invalid_url` — no `scheme:`; 3. `scheme` — not http(s); 4. `invalid_url` — no `//`
  *    authority, or an empty one;
- * 4. `non_canonical_host` — a backslash, whitespace, control character or `%` in the authority
- *    (a percent-encoded host, an IPv6 zone id);
- * 5. `credentials` — any user info (`@`);
- * 6. `invalid_url` — a port that is not digits; `port` — a port outside 1–65535;
- * 7. `non_canonical_host` — anything but a canonical dotted-quad IPv4 address, a bracketed IPv6
+ * 5. `non_canonical_host` — a backslash, whitespace or `%` in the authority (a percent-encoded
+ *    host, an IPv6 zone id);
+ * 6. `credentials` — any user info (`@`);
+ * 7. `invalid_url` — a port that is not digits; `port` — a port outside 1–65535;
+ * 8. `non_canonical_host` — anything but a canonical dotted-quad IPv4 address, a bracketed IPv6
  *    address or a host name of `[a-z0-9_-]` labels (1–63 characters, 253 in total). Numeric IPv4
  *    spellings (`2130706433`, `0x7f.1`, `0177.0.0.1`, `127.1`) are refused, never normalised. One
- *    trailing dot is dropped; an internationalised name is converted (UTS #46) with ext-intl and
- *    refused without it;
- * 8. `invalid_url` — a control character in the path or query;
- * 9. `port` — not in `media.remote.allowed_ports` (when set);
- * 10. `blocked` — `localhost` / `*.localhost`, a blocked address literal, or a name resolving to
+ *    trailing dot is dropped. A host with a non-ASCII character or a punycode (`xn--`) label goes
+ *    through UTS #46 (nontransitional, with the hyphen, bidi and joiner rules) with ext-intl, and
+ *    is refused without it; an address it maps to (`８.８.８.８`, `127。0。0。1`) is refused too:
+ *    an address is written in ASCII;
+ * 9. `invalid_url` — a backslash in the path, query or fragment (WHATWG parsers read it as `/`);
+ * 10. `port` — not in `media.remote.allowed_ports` (when set);
+ * 11. `blocked` — `localhost` / `*.localhost`, a blocked address literal, or a name resolving to
  *     any blocked address ({@see PrivateNetworks}) — unless `media.remote.allowed_private_hosts`
  *     allows it; `unresolved` — a name that does not resolve.
  *
@@ -96,6 +100,10 @@ final class RemoteUrlGuard
      */
     public function canonicalise(string $url): CanonicalUrl
     {
+        if (preg_match('/[\x00-\x1F\x7F]/', $url) === 1) {
+            throw RemoteFileRejected::invalidUrl($url);
+        }
+
         if (preg_match('/^([A-Za-z][A-Za-z0-9+.\-]*):/', $url, $match) !== 1) {
             throw RemoteFileRejected::invalidUrl($url);
         }
@@ -120,7 +128,7 @@ final class RemoteUrlGuard
             throw RemoteFileRejected::invalidUrl($url);
         }
 
-        if (preg_match('/[\x00-\x20\x7F\\\\%]/', $authority) === 1) {
+        if (preg_match('/[\x20\\\\%]/', $authority) === 1) {
             throw RemoteFileRejected::nonCanonicalHost($url);
         }
 
@@ -132,11 +140,11 @@ final class RemoteUrlGuard
         $port = $this->port($port, $scheme, $url);
         [$host, $ipLiteral] = $this->host($host, $url);
 
-        $pathAndQuery = substr($remainder, 0, strcspn($remainder, '#'));
-
-        if (preg_match('/[\x00-\x1F\x7F]/', $pathAndQuery) === 1) {
+        if (str_contains($remainder, '\\')) {
             throw RemoteFileRejected::invalidUrl($url);
         }
+
+        $pathAndQuery = substr($remainder, 0, strcspn($remainder, '#'));
 
         return new CanonicalUrl(
             $scheme,
@@ -221,7 +229,9 @@ final class RemoteUrlGuard
             throw RemoteFileRejected::nonCanonicalHost($url);
         }
 
-        if (preg_match('/[^\x00-\x7F]/', $host) === 1) {
+        $converted = preg_match('/[^\x00-\x7F]/', $host) === 1 || preg_match('/(^|\.)xn--/i', $host) === 1;
+
+        if ($converted) {
             $host = $this->toAscii($host, $url);
         }
 
@@ -231,7 +241,12 @@ final class RemoteUrlGuard
 
         if (preg_match('/^(0x[0-9a-f]*|[0-9]+)$/', $labels[count($labels) - 1]) === 1) {
             // Ends in a number, so every parser reads an IPv4 address — accepted only as the one
-            // spelling all of them agree on.
+            // spelling all of them agree on, and only when it was typed as one: IDNA maps
+            // `８.８.８.８` to it, and so normalises an address the guard refuses to normalise.
+            if ($converted) {
+                throw RemoteFileRejected::nonCanonicalHost($url);
+            }
+
             foreach ($labels as $label) {
                 if (count($labels) !== 4 || preg_match('/^(0|[1-9][0-9]{0,2})$/', $label) !== 1 || (int) $label > 255) {
                     throw RemoteFileRejected::nonCanonicalHost($url);
@@ -254,7 +269,11 @@ final class RemoteUrlGuard
         return [$host, false];
     }
 
-    /** An internationalised host name in its ASCII (punycode) form, UTS #46 non-transitional. */
+    /**
+     * An internationalised host name in its ASCII (punycode) form: UTS #46, nontransitional, with
+     * the bidi, joiner and hyphen rules. A punycode label is decoded and checked the same way, so
+     * `xn--localhost` (not valid punycode) and `xn----eha` (`-ü`, a leading hyphen) are refused.
+     */
     private function toAscii(string $host, string $url): string
     {
         if (! ($this->intl ?? function_exists('idn_to_ascii'))) {

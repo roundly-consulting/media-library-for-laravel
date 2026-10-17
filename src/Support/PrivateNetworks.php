@@ -135,19 +135,27 @@ final class PrivateNetworks
     }
 
     /**
-     * Whether an allowlist entry names this host.
+     * Whether an allowlist entry names this host: compared in any case, with one trailing dot
+     * dropped on both sides (`minio.internal.` is `minio.internal`).
      *
      * @param  list<string>  $allowlist
      */
     public static function allowsHost(string $host, array $allowlist): bool
     {
+        $host = self::withoutTrailingDot(strtolower($host));
+
         foreach ($allowlist as $entry) {
-            if (! self::isAddressOrRange($entry) && strcasecmp($entry, $host) === 0) {
+            if (! self::isAddressOrRange($entry) && self::withoutTrailingDot(strtolower(trim($entry))) === $host) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private static function withoutTrailingDot(string $name): string
+    {
+        return str_ends_with($name, '.') ? substr($name, 0, -1) : $name;
     }
 
     /**

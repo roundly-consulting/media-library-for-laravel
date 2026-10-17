@@ -120,9 +120,44 @@ it('converts an internationalised host name with ext-intl', function (): void {
 
     expect(MediaLibrary::remote()->vet('https://Bücher.example/')->host)->toBe('xn--bcher-kva.example')
         ->and(vetReason('http://ⓛocalhost/'))->toBe('blocked')
-        ->and(vetReason('http://127。0。0。1/'))->toBe('blocked')
         ->and(vetReason("http://a\u{200D}b.example/"))->toBe('non_canonical_host');
 })->skip(! extension_loaded('intl'), 'needs ext-intl');
+
+it('refuses an address spelled through IDNA instead of normalising it', function (string $url): void {
+    guardDns([]);
+
+    expect(vetReason($url))->toBe('non_canonical_host');
+})->with([
+    'ideographic dots' => ['http://127。0。0。1/'],
+    'fullwidth digits' => ['http://８.８.８.８/'],
+    'fullwidth hex' => ['http://０ｘ８.８.８.８/'],
+    'fullwidth integer' => ['http://１３４７４４０７２/'],
+])->skip(! extension_loaded('intl'), 'needs ext-intl');
+
+it('runs IDNA on punycode labels too, with the hyphen rules', function (): void {
+    guardDns(['xn--tda.example' => ['93.184.216.34']]);
+
+    expect(MediaLibrary::remote()->vet('http://XN--TDA.example/')->host)->toBe('xn--tda.example')
+        ->and(vetReason('http://xn--localhost/'))->toBe('non_canonical_host')
+        ->and(vetReason('http://xn--a/'))->toBe('non_canonical_host')
+        ->and(vetReason('http://-ü.example/'))->toBe('non_canonical_host')
+        ->and(vetReason('http://ab--üd.example/'))->toBe('non_canonical_host')
+        ->and(vetReason('http://-a.ü.example/'))->toBe('non_canonical_host');
+})->skip(! extension_loaded('intl'), 'needs ext-intl');
+
+it('needs ext-intl for a punycode label as well', function (): void {
+    app()->instance(RemoteUrlGuard::class, new RemoteUrlGuard(app(HostResolver::class), intl: false));
+
+    expect(vetReason('http://xn--tda.example/'))->toBe('non_canonical_host');
+});
+
+it('matches an allowlisted name with or without its trailing dot', function (): void {
+    guardDns([]);
+    config()->set('media.remote.allowed_private_hosts', ['Minio.Internal.']);
+
+    expect(vetReason('http://minio.internal/'))->toBe('ok')
+        ->and(vetReason('http://minio.internal./'))->toBe('ok');
+});
 
 it('refuses an internationalised host name without ext-intl, saying why', function (): void {
     app()->instance(RemoteUrlGuard::class, new RemoteUrlGuard(app(HostResolver::class), intl: false));
@@ -143,6 +178,10 @@ it('refuses what the shared vectors do not spell out', function (string $url, st
 })->with([
     'a tab in the path' => ["http://example.com/a\tb", 'invalid_url'],
     'a newline in the query' => ["http://example.com/?a=\n", 'invalid_url'],
+    'a tab in the fragment' => ["http://example.com/#a\tb", 'invalid_url'],
+    'a trailing newline' => ["http://example.com/\n", 'invalid_url'],
+    'a backslash in the path' => ['http://example.com/a\\b', 'invalid_url'],
+    'a backslash in the query' => ['http://example.com/?a=\\', 'invalid_url'],
     'a space in the path is fine' => ['http://example.com/a b', 'ok'],
     'an unclosed bracket' => ['http://[::1/', 'non_canonical_host'],
     'a bracketed ipv4' => ['http://[1.2.3.4]/', 'non_canonical_host'],
@@ -158,5 +197,6 @@ it('refuses what the shared vectors do not spell out', function (string $url, st
     'leading zeros in a port' => ['http://example.com:000080/', 'ok'],
     'a port past any integer' => ['http://example.com:99999999999999999999999/', 'port'],
     'a negative port' => ['http://example.com:-1/', 'invalid_url'],
-    'a control character in the host' => ["http://exam\x01ple.com/", 'non_canonical_host'],
+    'a control character in the host' => ["http://exam\x01ple.com/", 'invalid_url'],
+    'a control character in a url of another scheme' => ["gopher://exa\tmple.com/", 'invalid_url'],
 ]);
