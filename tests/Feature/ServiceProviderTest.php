@@ -113,6 +113,8 @@ it('skips the streaming route when it is disabled', function (): void {
     $provider = new MediaLibraryServiceProvider($this->app);
     $provider->register();
     $provider->boot();
+    // The route is named after it is added, so the collection's name index needs a refresh.
+    $routes->refreshNameLookups();
 
     expect($routes->getByName(MediaUrlResolver::ROUTE_NAME))->toBeNull();
 });
