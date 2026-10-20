@@ -119,6 +119,28 @@ it('skips the streaming route when it is disabled', function (): void {
     expect($routes->getByName(MediaUrlResolver::ROUTE_NAME))->toBeNull();
 });
 
+// Streaming is on by default, so a switch that is not set (the key missing from a published
+// `stream` array, since the config merge is shallow; `null`; or a blank `MEDIA_STREAM_ENABLED=`)
+// keeps the route loaded.
+it('keeps the streaming route when its switch is not set', function (array $stream): void {
+    config()->set('media.stream', $stream);
+
+    $routes = new RouteCollection;
+    app('router')->setRoutes($routes);
+
+    $provider = new MediaLibraryServiceProvider($this->app);
+    $provider->register();
+    $provider->boot();
+    $routes->refreshNameLookups();
+
+    expect(config('media.stream'))->toBe($stream)
+        ->and($routes->getByName(MediaUrlResolver::ROUTE_NAME))->not->toBeNull();
+})->with([
+    'absent' => [['route_prefix' => 'media', 'middleware' => ['web']]],
+    'null' => [['enabled' => null, 'route_prefix' => 'media', 'middleware' => ['web']]],
+    'blank' => [['enabled' => '', 'route_prefix' => 'media', 'middleware' => ['web']]],
+]);
+
 it('keeps the published config destination and tag', function (): void {
     $paths = ServiceProvider::pathsToPublish(MediaLibraryServiceProvider::class, 'media-config');
 
