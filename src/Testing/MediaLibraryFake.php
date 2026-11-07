@@ -45,7 +45,7 @@ use SensitiveParameter;
  * acceptance rules (mime allowlist, size cap, image dimensions) apply to adds, draft binds,
  * attaches, moves into another bucket, copies and replacements; a disk that is not configured
  * throws {@see DiskDoesNotExist}; an unknown or expired draft token throws. Reads (`get()`,
- * `find()`, `bucket()`, `rulesFor()`) run against the database as usual.
+ * `find()`, `bucket()`, `usage()`, `rulesFor()`) run against the database as usual.
  *
  * @phpstan-type Call array{
  *     media: Media|null,

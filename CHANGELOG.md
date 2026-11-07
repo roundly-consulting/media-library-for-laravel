@@ -6,6 +6,34 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Added
+
+- Every generated variant records the bytes written, so storage can be metered from the row
+  without a request per file. The size is the `size` key of its `generated_variants` record and
+  `GeneratedVariant::$size`. Moves, copies and variant moves carry it along. Records written before
+  this release have no `size` key and read as unknown (`null`). Nothing needs migrating, and the
+  stored json keeps its shape.
+- `Media::variantSize($name)` (one variant's recorded bytes, or `null`), `Media::variantsSize()`
+  (every recorded variant size) and `Media::storedSize()` (the original's `size` plus its variants).
+- `MediaLibrary::usage(?Builder $query = null)` returns a `StorageUsage` with the bytes the selected
+  media physically store. Each original is counted once per distinct `(disk, path)`, however many
+  rows share it through dedup, `attach()` or a same-disk `copy()`. `originalBytes`, `variantBytes`
+  and `totalBytes()` give what the disks hold. `referencedOriginalBytes` and `savedBytes()` show what
+  sharing saves. Pass any media query to scope it to a tenant, owner or bucket. The default is every
+  row, soft-deleted ones included. The same measurement is `MeasureStorageUsageAction`, and the
+  technical docs give the SQL for originals.
+- `VariantHasBeenGenerated` and `VariantsHaveBeenGenerated` carry `size` (bytes written),
+  `freedBytes` (the recorded size of the files a re-render replaced) and `delta()`. The new
+  arguments are optional, so events a host builds by hand keep working.
+- A `VariantsHaveBeenDeleted` event (`variants`, `freedBytes`) fires when a media's variant files are
+  removed: on a force delete, a replace, or entering a bucket that does not define them. When the
+  removal waits for a transaction, the event fires once it commits.
+- `php artisan media:backfill-variant-sizes` measures the size of variants recorded before this
+  release from their disks. It reads media in chunks (`--chunk`), can be stopped and re-run, and
+  resumes with `--after=<id>`. Use `--dry-run` to see what it would record, and filter with
+  `{model?}` / `--ids`. Files it cannot read are listed and keep an unknown size. It never bumps
+  `updated_at`.
+
 ## 1.3.1 - 2026-10-17
 
 ### Fixed

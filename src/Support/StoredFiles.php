@@ -145,11 +145,41 @@ final class StoredFiles
     public function deleteAfterCommit(Media $media, string $disk, string $path): void
     {
         DB::afterCommit(function () use ($media, $disk, $path): void {
-            if ($this->isReferencedByOthers($disk, $path, null) || $this->recordsVariantAt($media, $disk, $path)) {
-                return;
+            $this->release($media, $disk, $path);
+        });
+    }
+
+    /**
+     * Release variant files a row has stopped recording once the surrounding transaction commits
+     * — at once when none is open — under the same rules as {@see self::deleteAfterCommit()}.
+     *
+     * `$released` then receives the variants whose bytes are gone and the sum of their recorded
+     * sizes: deleted files, and files a newer render of `$media` already overwrote. A file some
+     * row stores as its original is kept, and not counted. Not called when nothing was released.
+     *
+     * @param  list<VariantFile>  $files
+     * @param  Closure(list<string>, int): void  $released
+     */
+    public function releaseVariantsAfterCommit(Media $media, array $files, Closure $released): void
+    {
+        if ($files === []) {
+            return;
+        }
+
+        DB::afterCommit(function () use ($media, $files, $released): void {
+            $variants = [];
+            $freedBytes = 0;
+
+            foreach ($files as $file) {
+                if ($this->release($media, $file->disk, $file->path)) {
+                    $variants[] = $file->variant;
+                    $freedBytes += $file->size ?? 0;
+                }
             }
 
-            Storage::disk($disk)->delete($path);
+            if ($variants !== []) {
+                $released($variants, $freedBytes);
+            }
         });
     }
 
@@ -218,12 +248,20 @@ final class StoredFiles
         });
     }
 
-    /** Delete this media's generated variant files, each from the disk it was written to. */
-    public function deleteVariants(Media $media): void
+    /**
+     * Delete this media's generated variant files, each from the disk it was written to. Returns
+     * the bytes freed — the sum of their recorded sizes (an unrecorded size counts 0).
+     */
+    public function deleteVariants(Media $media): int
     {
-        foreach (array_keys($media->generatedVariants()) as $name) {
-            Storage::disk($media->diskFor($name))->delete($media->getPath($name));
+        $freedBytes = 0;
+
+        foreach ($media->generatedVariants() as $name => $variant) {
+            Storage::disk($variant->disk)->delete($media->getPath($name));
+            $freedBytes += $variant->size ?? 0;
         }
+
+        return $freedBytes;
     }
 
     /** Delete this media's original unless another row still points at it. */
@@ -287,6 +325,24 @@ final class StoredFiles
         }
 
         return $referenced;
+    }
+
+    /**
+     * Delete a file `$media` no longer needs unless some row stores it as its original. Returns
+     * whether its bytes are gone — deleted here, or already overwritten by a variant `$media` now
+     * records at the same path.
+     */
+    private function release(Media $media, string $disk, string $path): bool
+    {
+        if ($this->isReferencedByOthers($disk, $path, null)) {
+            return false;
+        }
+
+        if (! $this->recordsVariantAt($media, $disk, $path)) {
+            Storage::disk($disk)->delete($path);
+        }
+
+        return true;
     }
 
     private function recordsVariantAt(Media $media, string $disk, string $path): bool

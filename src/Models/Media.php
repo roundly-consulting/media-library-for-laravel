@@ -47,7 +47,7 @@ use Symfony\Component\Mime\MimeTypes;
  * @property int $size
  * @property string $visibility
  * @property array<string, mixed>|null $custom_properties
- * @property array<string, array{file_name: string, format: string, disk: string}>|null $generated_variants
+ * @property array<string, array{file_name: string, format: string, disk: string, size?: int}>|null $generated_variants
  * @property string|null $checksum
  * @property int|null $width
  * @property int|null $height
@@ -291,6 +291,38 @@ class Media extends Model
     public function generatedVariant(string $name): ?GeneratedVariant
     {
         return $name === '' ? null : GeneratedVariant::fromStored($this->generated_variants[$name] ?? null);
+    }
+
+    /**
+     * The bytes stored for one generated variant, as recorded when it was written. Null when the
+     * variant has not been generated, or was recorded before sizes were (run
+     * `php artisan media:backfill-variant-sizes` to measure those).
+     */
+    public function variantSize(string $name): ?int
+    {
+        return $this->generatedVariant($name)?->size;
+    }
+
+    /** The bytes of every generated variant whose size is recorded. Unknown sizes count as 0. */
+    public function variantsSize(): int
+    {
+        $total = 0;
+
+        foreach ($this->generatedVariants() as $variant) {
+            $total += $variant->size ?? 0;
+        }
+
+        return $total;
+    }
+
+    /**
+     * The bytes this media stores: its original plus its recorded variants. A deduplicated
+     * original is counted here for every row that shares it; `MediaLibrary::usage()` counts each
+     * stored file once.
+     */
+    public function storedSize(): int
+    {
+        return (int) $this->size + $this->variantsSize();
     }
 
     /** @internal record the file a variant was just written to (unsaved) */

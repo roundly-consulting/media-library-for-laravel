@@ -14,6 +14,7 @@ use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Validation\Validator;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
+use RoundlyConsulting\MediaLibrary\Commands\BackfillVariantSizesCommand;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
 use RoundlyConsulting\MediaLibrary\Commands\ClearCommand;
 use RoundlyConsulting\MediaLibrary\Commands\PruneDraftsCommand;
@@ -54,6 +55,7 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
                 ClearCommand::class,
                 PruneDraftsCommand::class,
                 VerifyCommand::class,
+                BackfillVariantSizesCommand::class,
             ])
             ->contributesToAbout(fn (): array => $this->aboutData());
     }

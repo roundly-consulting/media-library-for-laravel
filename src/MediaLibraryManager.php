@@ -13,6 +13,7 @@ use RoundlyConsulting\MediaLibrary\Actions\AttachMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\BindDraftMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\CopyMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\MeasureStorageUsageAction;
 use RoundlyConsulting\MediaLibrary\Actions\MoveMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\MoveMediaVariantsAction;
 use RoundlyConsulting\MediaLibrary\Actions\PruneDraftsAction;
@@ -23,6 +24,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\StorageUsage;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
@@ -41,6 +43,7 @@ use SensitiveParameter;
  * - Flat verbs (`attach`, `bindDraft`, `move`, `copy`, `replace`, `delete`, `regenerate`, …) act
  *   on the media they are handed; `variants($media)` groups the variant operations.
  * - `remote()` fetches and vets user-supplied URLs with the guard `addFromUrl()` uses.
+ * - `usage()` measures the bytes media store, counting a shared original once.
  *
  * Every mutation — from the facade, a handle, the `InteractsWithMedia` trait or a `Media` model
  * method — funnels through one of the flat verbs here (adds through `store()`), each of which
@@ -231,6 +234,19 @@ class MediaLibraryManager
     public function find(string $uuid): ?Media
     {
         return MediaModel::query()->where('uuid', $uuid)->first();
+    }
+
+    /**
+     * The bytes stored for the media `$query` selects: each physical original once, however many
+     * rows share it (dedup, `attach()`, a same-disk `copy()`), plus every recorded variant size.
+     * Without a query: every media row, soft-deleted ones included — their files are still stored.
+     *
+     * @param  Builder<Media>|null  $query
+     */
+    public function usage(?Builder $query = null): StorageUsage
+    {
+        return $this->container->make(MeasureStorageUsageAction::class)
+            ->execute($query ?? MediaModel::query()->withTrashed());
     }
 
     /** Delete every media in a global bucket (rows and files). Returns how many were deleted. */

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Facade;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\StorageUsage;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
 use RoundlyConsulting\MediaLibrary\Handles\RemoteUrls;
@@ -42,6 +43,7 @@ use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
  * @method static list<string> rulesFor(class-string $modelClass, string $bucket = 'default')
  * @method static Builder<Media> bucket(string $bucket = 'default')
  * @method static Media|null find(string $uuid)
+ * @method static StorageUsage usage(Builder<Media>|null $query = null)
  * @method static int clearBucket(string $bucket = 'default')
  *
  * @see MediaLibraryManager

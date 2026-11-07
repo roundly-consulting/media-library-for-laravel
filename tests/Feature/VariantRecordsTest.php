@@ -30,7 +30,12 @@ it('records the file each variant was written to', function (): void {
 
     // toEqual, not toBe: a jsonb column hands the keys back in its own order.
     expect($media->fresh()?->generated_variants)->toEqual([
-        'thumb' => ['file_name' => 'thumb.webp', 'format' => 'webp', 'disk' => 'hot'],
+        'thumb' => [
+            'file_name' => 'thumb.webp',
+            'format' => 'webp',
+            'disk' => 'hot',
+            'size' => Storage::disk('hot')->size($media->getPath('thumb')),
+        ],
     ]);
 });
 

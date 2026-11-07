@@ -13,6 +13,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenReplaced;
+use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenDeleted;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
@@ -88,8 +89,10 @@ final class ReplaceMediaAction
 
         $newChecksum = $this->checksum->forLocalFile($source->path);
 
+        $deleted = null;
+
         // This row first, then — when the new bytes are already stored — the row it shares with.
-        $media->getConnection()->transaction(function () use ($media, $source, $newChecksum, $dimensions): void {
+        $media->getConnection()->transaction(function () use ($media, $source, $newChecksum, $dimensions, &$deleted): void {
             $this->lockRow($media);
 
             // A row that starts sharing this original locks this row first, so it has either
@@ -99,7 +102,12 @@ final class ReplaceMediaAction
             $oldShared = $this->files->originalIsShared($media, locking: true);
             $oldFileName = $media->file_name;
 
-            $this->files->deleteVariants($media);
+            $variants = array_map('strval', array_keys($media->generatedVariants()));
+            $freedBytes = $this->files->deleteVariants($media);
+
+            if ($variants !== []) {
+                $deleted = new VariantsHaveBeenDeleted($media, $variants, $freedBytes);
+            }
 
             $this->refreshMetadata($media, $source, $newChecksum, $dimensions);
 
@@ -112,6 +120,11 @@ final class ReplaceMediaAction
 
             $this->releaseOldOriginal($oldDisk, $oldPath, $oldShared, $media);
         });
+
+        // The old variants are gone for good; announced before the new ones are rendered.
+        if ($deleted !== null) {
+            event($deleted);
+        }
 
         $this->dispatchVariants->execute($media, $media->isImage() ? $media->resolveVariants() : []);
 

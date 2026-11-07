@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Actions;
 
+use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenDeleted;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
+use RoundlyConsulting\MediaLibrary\Support\VariantFile;
 
 /**
  * Brings a media's generated variants in line with the bucket it now sits in: variants that bucket
@@ -31,20 +33,24 @@ final class ReconcileVariantsAction
 
         $records = $media->generatedVariants();
         $stale = array_values(array_diff(array_map('strval', array_keys($media->generated_variants ?? [])), $defined));
+        $dropped = [];
 
         foreach ($stale as $name) {
-            $path = $media->getPath($name);
-            $media->forgetGeneratedVariant($name);
-
             if (isset($records[$name])) {
-                // After the commit: a host rollback restores the record, so the file must stay.
-                $this->files->deleteAfterCommit($media, $records[$name]->disk, $path);
+                $dropped[] = VariantFile::of($media, $name, $records[$name]);
             }
+
+            $media->forgetGeneratedVariant($name);
         }
 
         if ($stale !== []) {
             $media->save();
         }
+
+        // After the commit: a host rollback restores the records, so the files must stay.
+        $this->files->releaseVariantsAfterCommit($media, $dropped, static function (array $variants, int $freedBytes) use ($media): void {
+            event(new VariantsHaveBeenDeleted($media, $variants, $freedBytes));
+        });
 
         $missing = array_values(array_filter(
             $definitions,

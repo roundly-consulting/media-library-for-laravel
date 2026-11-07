@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
 use RoundlyConsulting\MediaLibrary\Buckets\MediaBucket;
 use RoundlyConsulting\MediaLibrary\Events\DraftMediaHasBeenBound;
+use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenDeleted;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
@@ -20,6 +21,7 @@ use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
 use RoundlyConsulting\MediaLibrary\Support\FileTransfer;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
+use RoundlyConsulting\MediaLibrary\Support\VariantFile;
 use SensitiveParameter;
 
 /**
@@ -56,10 +58,12 @@ final class BindDraftMediaAction
         $target = $this->guard->bucketFor($owner, $bucket);
         $this->guard->ensureAcceptsMedia($target, $bucket, $media);
 
-        $cleanup = DB::transaction(function () use ($media, $token, $owner, $bucket, $target): array {
+        $droppedVariants = [];
+
+        $cleanup = DB::transaction(function () use ($media, $token, $owner, $bucket, $target, &$droppedVariants): array {
             $this->claim($media, $token);
 
-            $cleanup = $this->applyBucketStorage($media, $target);
+            $cleanup = $this->applyBucketStorage($media, $target, $droppedVariants);
 
             $media->model_type = $owner->getMorphClass();
             $media->model_id = $owner->getKey();
@@ -76,6 +80,10 @@ final class BindDraftMediaAction
             $this->files->deleteAfterCommit($media, $disk, $path);
         }
 
+        $this->files->releaseVariantsAfterCommit($media, $droppedVariants, static function (array $variants, int $freedBytes) use ($media): void {
+            event(new VariantsHaveBeenDeleted($media, $variants, $freedBytes));
+        });
+
         $this->guard->enforceSingleFile($target, $owner, $bucket, $media);
 
         event(new DraftMediaHasBeenBound($media));
@@ -88,11 +96,13 @@ final class BindDraftMediaAction
 
     /**
      * Put the draft's files where the bucket stores media. Returns the files to delete once the
-     * row points at their replacements (the draft's original when it moved, and its variants).
+     * row points at their replacements (the draft's original when it moved); the variant files
+     * rendered for the draft's old storage land in `$droppedVariants`.
      *
+     * @param  list<VariantFile>  $droppedVariants
      * @return list<array{0: string, 1: string}>
      */
-    private function applyBucketStorage(Media $media, ?MediaBucket $bucket): array
+    private function applyBucketStorage(Media $media, ?MediaBucket $bucket, array &$droppedVariants): array
     {
         if ($bucket === null) {
             return [];
@@ -113,9 +123,9 @@ final class BindDraftMediaAction
         $cleanup = $this->relocateOriginal($media, $disk, $visibility);
 
         // Variants rendered for the draft are re-rendered on the new storage by the reconcile; the
-        // old files go with the rest of the cleanup.
-        foreach (array_keys($media->generatedVariants()) as $name) {
-            $cleanup[] = [$media->diskFor($name), $media->getPath($name)];
+        // old files go once the bind commits.
+        foreach ($media->generatedVariants() as $name => $variant) {
+            $droppedVariants[] = VariantFile::of($media, $name, $variant);
         }
 
         $media->generated_variants = [];

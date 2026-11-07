@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Observers;
 
 use Illuminate\Support\Facades\DB;
+use RoundlyConsulting\MediaLibrary\Events\VariantsHaveBeenDeleted;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
 
@@ -16,8 +17,9 @@ use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
  *
  * The original is **refcount-guarded**: while any other row — soft-deleted ones included — still
  * points at the same stored file, it is left in place and only this row's own variants go.
- * Variants are always per-row and are deleted from the disk each one was written to. Directories
- * are tidied last, and never while they still hold a file another row points at.
+ * Variants are always per-row and are deleted from the disk each one was written to, announced by
+ * {@see VariantsHaveBeenDeleted} with their recorded bytes. Directories are tidied last, and never
+ * while they still hold a file another row points at.
  *
  * All of it runs once the deleting transaction commits — at once when none is open. A rollback
  * restores the row, so its files must still be there; and a row another transaction made share
@@ -32,9 +34,14 @@ final class MediaObserver
     public function forceDeleted(Media $media): void
     {
         DB::afterCommit(function () use ($media): void {
-            $this->files->deleteVariants($media);
+            $variants = array_map('strval', array_keys($media->generatedVariants()));
+            $freedBytes = $this->files->deleteVariants($media);
             $this->files->deleteOriginalUnlessShared($media);
             $this->files->tidyDirectories($media);
+
+            if ($variants !== []) {
+                event(new VariantsHaveBeenDeleted($media, $variants, $freedBytes));
+            }
         });
     }
 }

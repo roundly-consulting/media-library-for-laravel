@@ -23,8 +23,9 @@ use Throwable;
 /**
  * Generates image derivatives ("variants") for a {@see Media} through the active
  * {@see ImageDriver}, writing each to the resolved variants disk under
- * `{uuid}/variants/{name}.{ext}` and recording what was written — file name, format and disk — in
- * `generated_variants[name]`, so reads never have to re-derive (and mis-derive) the file.
+ * `{uuid}/variants/{name}.{ext}` and recording what was written — file name, format, disk and
+ * byte size — in `generated_variants[name]`, so reads never have to re-derive (and mis-derive) the
+ * file and storage can be metered without asking the disk.
  *
  * @internal building block — renders exactly the definitions it is handed. Hosts regenerate with
  *           `MediaLibrary::variants($media)->regenerate()` ({@see RegenerateVariantsAction}).
@@ -53,10 +54,12 @@ final class GenerateVariantsAction
         $driver = app(ImageDriver::class);
 
         $generated = [];
+        $size = 0;
+        $freedBytes = 0;
 
         foreach ($variants as $variant) {
             try {
-                $this->generateOne($media, $variant, $driver);
+                $written = $this->generateOne($media, $variant, $driver);
             } catch (Throwable $exception) {
                 if (! $reportFailures) {
                     throw $exception;
@@ -68,6 +71,8 @@ final class GenerateVariantsAction
             }
 
             $generated[] = $variant->name;
+            $size += $written->size;
+            $freedBytes += $written->freedBytes;
         }
 
         if ($generated === []) {
@@ -76,12 +81,12 @@ final class GenerateVariantsAction
 
         $media->save();
 
-        event(new VariantsHaveBeenGenerated($media, $generated));
+        event(new VariantsHaveBeenGenerated($media, $generated, $size, $freedBytes));
 
         return $media;
     }
 
-    private function generateOne(Media $media, Variant $variant, ImageDriver $driver): void
+    private function generateOne(Media $media, Variant $variant, ImageDriver $driver): VariantHasBeenGenerated
     {
         $manipulations = $variant->resolve($driver, (string) $media->extension);
 
@@ -108,9 +113,15 @@ final class GenerateVariantsAction
             Storage::disk($previous->disk)->delete($this->pathGenerator->getPathForVariants($media).$previous->fileName);
         }
 
-        $media->recordGeneratedVariant($variant->name, new GeneratedVariant($fileName, $manipulations->format, $disk));
+        // The bytes just handed to the disk: recorded now, so metering never needs a HEAD request.
+        $media->recordGeneratedVariant($variant->name, new GeneratedVariant($fileName, $manipulations->format, $disk, strlen($bytes)));
 
-        event(new VariantHasBeenGenerated($media, $variant->name));
+        // Overwritten in place or removed above, the previous file's bytes are gone either way.
+        $written = new VariantHasBeenGenerated($media, $variant->name, strlen($bytes), $previous->size ?? 0);
+
+        event($written);
+
+        return $written;
     }
 
     private function render(Media $media, ManipulationSet $manipulations, ImageDriver $driver): string

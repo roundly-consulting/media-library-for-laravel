@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
+use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
+use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Tests\ConfiguredModelTestCase;
 use RoundlyConsulting\MediaLibrary\Tests\PublishSandboxTestCase;
 use RoundlyConsulting\MediaLibrary\Tests\TestCase;
@@ -45,4 +49,59 @@ function mediaUuid(string $label): string
         substr($hex, 16, 4),
         substr($hex, 20, 12),
     );
+}
+
+/**
+ * The bytes each generated variant of `$media` holds on its disk, keyed by name.
+ *
+ * @return array<string, int>
+ */
+function variantBytesOnDisk(Media $media): array
+{
+    $bytes = [];
+
+    foreach (MediaLibrary::variants($media)->generated() as $name) {
+        $bytes[$name] = Storage::disk($media->diskFor($name))->size($media->getPath($name));
+    }
+
+    ksort($bytes);
+
+    return $bytes;
+}
+
+/** Every event of `$class` fired from now on, in order. */
+function collectEvents(string $class): ArrayObject
+{
+    $events = new ArrayObject;
+
+    Event::listen($class, static function (object $event) use ($events): void {
+        $events[] = $event;
+    });
+
+    return $events;
+}
+
+/** Strip the recorded sizes, as on a row written before sizes were. */
+function withoutVariantSizes(Media $media): Media
+{
+    $records = $media->generated_variants ?? [];
+
+    foreach (array_keys($records) as $name) {
+        unset($records[$name]['size']);
+    }
+
+    Media::query()->whereKey($media->getKey())->toBase()->update(['generated_variants' => json_encode($records)]);
+
+    return $media->fresh() ?? throw new RuntimeException('Media row is gone.');
+}
+
+/** Overwrite one stored record field, as if an earlier render had written it. */
+function withVariantRecord(Media $media, string $variant, array $fields): Media
+{
+    $records = $media->generated_variants ?? [];
+    $records[$variant] = array_merge($records[$variant], $fields);
+
+    Media::query()->whereKey($media->getKey())->toBase()->update(['generated_variants' => json_encode($records)]);
+
+    return $media->fresh() ?? throw new RuntimeException('Media row is gone.');
 }
