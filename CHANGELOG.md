@@ -6,6 +6,8 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+## 1.4.0 - 2026-11-07
+
 ### Added
 
 - Every generated variant records the bytes written, so storage can be metered from the row
