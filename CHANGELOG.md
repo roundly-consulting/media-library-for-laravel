@@ -8,7 +8,15 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ### Changed
 
-- Maintenance: CI tests PHP 8.5 and 8.6 (8.6 on Laravel 13, with Pest 5).
+- **Breaking:** requires Laravel 13; Laravel 12 is no longer supported. Upgrade the application to Laravel 13 before updating.
+- Requires the 2.x releases of the Roundly packages it builds on (their Laravel 13 releases).
+- Maintenance: tested on PHP 8.4, 8.5 and 8.6; the test suite runs on Pest 5.
+
+### Fixed
+
+- On PHP 8.5 and later, an SVG no longer takes a width and height from the size it declares, so a
+  bucket's dimension bounds and the derived validation rules keep refusing it, exactly as on PHP 8.4.
+- No `finfo_close()` deprecation notices on PHP 8.5 and later.
 
 ## 1.4.0 - 2026-11-07
 

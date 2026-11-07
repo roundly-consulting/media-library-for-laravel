@@ -25,7 +25,7 @@ deduplicated storage and blur-up placeholders come built in.
 
 ## Installation
 
-Requires PHP 8.4, Laravel 12 or 13, `ext-fileinfo`, and `ext-imagick` or `ext-gd` for image
+Requires PHP 8.4, Laravel 13, `ext-fileinfo`, and `ext-imagick` or `ext-gd` for image
 variants.
 
 ```bash
