@@ -134,10 +134,6 @@ final class BucketValidationRules
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
         $mimeType = $finfo === false ? false : finfo_file($finfo, $path);
 
-        if ($finfo !== false) {
-            finfo_close($finfo);
-        }
-
         if (! str_starts_with((string) $mimeType, 'image/')) {
             return true;
         }

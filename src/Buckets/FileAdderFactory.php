@@ -222,7 +222,6 @@ final class FileAdderFactory
         }
 
         $mime = finfo_file($finfo, $path);
-        finfo_close($finfo);
 
         return $mime === false ? null : $mime;
     }
