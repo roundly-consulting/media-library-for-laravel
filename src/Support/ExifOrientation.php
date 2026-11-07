@@ -85,13 +85,18 @@ final class ExifOrientation
      * The width/height a viewer sees: the stored pixel size, swapped when the EXIF tag turns the
      * image a quarter. Null when the file is not a readable image.
      *
+     * An SVG has no pixel size, so it is null too. PHP 8.5's getimagesize() reports the width and
+     * height an SVG declares, which is not what renders (viewBox, `%` and `em` units); without
+     * this, the same SVG would pass a bucket's dimension bounds on one PHP version and fail them
+     * on another.
+     *
      * @return array{0: int, 1: int}|null
      */
     public static function displayDimensions(string $path): ?array
     {
         $size = @getimagesize($path);
 
-        if (! is_array($size)) {
+        if (! is_array($size) || $size['mime'] === 'image/svg+xml') {
             return null;
         }
 
