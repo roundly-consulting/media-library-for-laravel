@@ -5,16 +5,33 @@ on:
 
 jobs:
   phpstan:
-    name: phpstan
+    name: phpstan (P${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: [8.4, 8.5, 8.6]
+
     steps:
       - uses: actions/checkout@v7
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: ${{ matrix.php }}
           coverage: none
+
+      # Pest 4 stops at PHP 8.5: its parallel runner (paratest for PHPUnit 12) caps PHP there, so
+      # PHP 8.6 runs the Pest 5 line. composer.json keeps Pest 4; this rewrite lives in the job only.
+      - name: Use Pest 5
+        if: matrix.php == '8.6'
+        run: |
+          mapfile -t deps < <(jq -r '."require-dev" // {} | to_entries[]
+            | select(.key | startswith("pestphp/pest") or . == "phpunit/phpunit")
+            | (if .key == "phpunit/phpunit" then "13" else "5" end) as $major
+            | select(.value | test("\\^" + $major) | not)
+            | "\(.key):^\($major).0"' composer.json)
+          if [ "${#deps[@]}" -gt 0 ]; then composer require --dev "${deps[@]}" --no-interaction --no-update; fi
 
       - name: Install composer dependencies
         uses: ramsey/composer-install@v4

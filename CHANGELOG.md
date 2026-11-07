@@ -6,6 +6,10 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Changed
+
+- Maintenance: CI tests PHP 8.5 and 8.6 (8.6 on Laravel 13, with Pest 5).
+
 ## 1.4.0 - 2026-11-07
 
 ### Added
