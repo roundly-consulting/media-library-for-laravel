@@ -15,21 +15,24 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
+use RoundlyConsulting\MediaLibrary\Contracts\GeneratesTemporaryUrlsWithOptions;
 use RoundlyConsulting\MediaLibrary\Contracts\PathGenerator;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
 use RoundlyConsulting\MediaLibrary\Database\Factories\MediaFactory;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\GeneratedVariant;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\TemporaryUrlOptions;
 use RoundlyConsulting\MediaLibrary\Exceptions\ChecksumMismatch;
+use RoundlyConsulting\MediaLibrary\Exceptions\TemporaryUrlNotSupported;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri;
 use RoundlyConsulting\MediaLibrary\Support\Checksum;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
+use RoundlyConsulting\MediaLibrary\Support\ResponseHeaders;
 use RoundlyConsulting\MediaLibrary\Variants\ResponsiveImageGenerator;
 use RoundlyConsulting\MediaLibrary\Variants\Variant;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Symfony\Component\Mime\MimeTypes;
 
 /**
  * @property int $id
@@ -65,19 +68,6 @@ class Media extends Model
     use HasFactory;
 
     use SoftDeletes;
-
-    /**
-     * Types a browser may render inline without running anything; everything else (HTML, SVG,
-     * XML, scripts, unknown types) is streamed as an attachment.
-     */
-    private const INLINE_SAFE_TYPES = [
-        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp',
-        'image/x-ms-bmp', 'image/tiff', 'image/heic', 'image/heif', 'image/x-icon',
-        'image/vnd.microsoft.icon', 'application/pdf', 'text/plain',
-    ];
-
-    /** Locks a streamed file into a sandbox, so even a mislabelled one cannot script the app origin. */
-    private const SANDBOX_POLICY = "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'";
 
     protected $guarded = [];
 
@@ -210,6 +200,35 @@ class Media extends Model
     public function getTemporaryUrl(DateTimeInterface $expiry, string $variant = ''): string
     {
         return $this->urlGenerator()->getTemporaryUrl($this, $expiry, $variant);
+    }
+
+    /**
+     * A temporary URL whose response carries `$options`' disposition, file name and content type:
+     * on S3 and S3-compatible disks the presigned URL's `response-content-*` overrides, so the
+     * storage origin never renders HTML or SVG inline; elsewhere the signed streaming route.
+     *
+     * @throws TemporaryUrlNotSupported when the bound URL generator cannot set response headers
+     */
+    public function getTemporaryUrlWithOptions(DateTimeInterface $expiry, TemporaryUrlOptions $options, string $variant = ''): string
+    {
+        $generator = $this->urlGenerator();
+
+        if (! $generator instanceof GeneratesTemporaryUrlsWithOptions) {
+            throw TemporaryUrlNotSupported::withResponseOptions($generator::class);
+        }
+
+        return $generator->getTemporaryUrlWithOptions($this, $expiry, $options, $variant);
+    }
+
+    /**
+     * A temporary URL that always downloads the file (an attachment), under `$name` or the
+     * served file's own name.
+     *
+     * @throws TemporaryUrlNotSupported when the bound URL generator cannot set response headers
+     */
+    public function getTemporaryDownloadUrl(DateTimeInterface $expiry, string $variant = '', ?string $name = null): string
+    {
+        return $this->getTemporaryUrlWithOptions($expiry, TemporaryUrlOptions::download($name), $variant);
     }
 
     public function isPublic(): bool
@@ -665,33 +684,14 @@ class Media extends Model
         return $request->boolean('download');
     }
 
-    /**
-     * The type of the file a response serves: a variant's own output format, else the original's
-     * recorded (sniffed) mime type.
-     */
-    private function responseMimeType(string $variant): ?string
-    {
-        $generated = $this->generatedVariant($variant);
-
-        if ($generated !== null && $generated->format !== '') {
-            return MimeTypes::getDefault()->getMimeTypes($generated->format)[0] ?? null;
-        }
-
-        return is_string($this->mime_type) && $this->mime_type !== '' ? $this->mime_type : null;
-    }
-
     private function isInlineSafe(string $variant): bool
     {
-        $mimeType = (string) $this->responseMimeType($variant);
-
-        return in_array($mimeType, self::INLINE_SAFE_TYPES, true)
-            || str_starts_with($mimeType, 'audio/')
-            || str_starts_with($mimeType, 'video/');
+        return ResponseHeaders::isInlineSafe(ResponseHeaders::mimeType($this, $variant));
     }
 
     private function responseFileName(string $variant): string
     {
-        return $this->generatedVariant($variant)->fileName ?? $this->file_name;
+        return ResponseHeaders::fileName($this, $variant);
     }
 
     /** @return array<string, string> */
@@ -699,7 +699,7 @@ class Media extends Model
     {
         $headers = ['X-Content-Type-Options' => 'nosniff'];
 
-        $mimeType = $this->responseMimeType($variant);
+        $mimeType = ResponseHeaders::mimeType($this, $variant);
 
         if ($mimeType !== null) {
             $headers['Content-Type'] = $mimeType;
@@ -707,7 +707,7 @@ class Media extends Model
 
         // A browser's PDF viewer refuses to run inside a CSP sandbox; PDF is inline-safe without it.
         if ($mimeType !== 'application/pdf') {
-            $headers['Content-Security-Policy'] = self::SANDBOX_POLICY;
+            $headers['Content-Security-Policy'] = ResponseHeaders::SANDBOX_POLICY;
         }
 
         return $headers;

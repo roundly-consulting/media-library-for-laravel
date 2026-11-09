@@ -16,6 +16,18 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   replaces honour it, the scope is checked again under the shared row's lock, and with a scope that
   matches how you measure, per-owner `MediaLibrary::usage()` figures add up to the total.
   `php artisan about` shows the scope.
+- Temporary URLs can ask the storage origin for response headers.
+  `Media::getTemporaryUrlWithOptions($expiry, TemporaryUrlOptions $options, $variant)` and
+  `Media::getTemporaryDownloadUrl($expiry, $variant, $name)` sign S3's
+  `response-content-disposition` and `response-content-type` into the presigned URL, so an S3
+  origin no longer renders stored HTML or SVG inline. With no explicit choice they follow the
+  streaming route's rule: an attachment unless the type is inline-safe, and the file's sniffed type.
+  On the signed streaming route an attachment becomes `?download=1` and a file name `?name=`, both
+  signed. `media.temporary_url_response_headers` (off by default) applies the rule to every
+  `getTemporaryUrl()`. `MediaLibrary::for($model)->temporaryUrl()` takes the options too. Custom
+  URL generators opt in through the new `Contracts\GeneratesTemporaryUrlsWithOptions`; one that
+  implements only `UrlGenerator` keeps working, and only the new calls throw
+  `TemporaryUrlNotSupported` for it.
 
 ### Changed
 
@@ -24,6 +36,8 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 ### Planned for the next major
 
 - `media.deduplicate_scope` defaults to `owner`. Set it to `global` to keep sharing across owners.
+- `media.temporary_url_response_headers` defaults to on: every presigned URL carries the response
+  headers. Set it to `false` to keep plain presigned URLs.
 
 ## 2.0.0 - 2026-11-07
 

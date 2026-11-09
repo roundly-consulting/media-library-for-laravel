@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Support;
 
 use DateTimeInterface;
+use RoundlyConsulting\MediaLibrary\Contracts\GeneratesTemporaryUrlsWithOptions;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\TemporaryUrlOptions;
+use RoundlyConsulting\MediaLibrary\Exceptions\TemporaryUrlNotSupported;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
@@ -17,7 +20,7 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  * list is non-empty, and a cache-bust `?v={updated_at}` param is appended when `media.cdn.cache_bust`
  * is on, so replaced media busts CDN caches automatically.
  */
-final class CdnUrlGenerator implements UrlGenerator
+final class CdnUrlGenerator implements GeneratesTemporaryUrlsWithOptions, UrlGenerator
 {
     public function __construct(
         private readonly UrlGenerator $default,
@@ -38,6 +41,18 @@ final class CdnUrlGenerator implements UrlGenerator
     {
         // Temporary URLs are signed/presigned — never rewritten onto the CDN host.
         return $this->default->getTemporaryUrl($media, $expiry, $variant);
+    }
+
+    /**
+     * @throws TemporaryUrlNotSupported when the wrapped generator cannot set response headers
+     */
+    public function getTemporaryUrlWithOptions(Media $media, DateTimeInterface $expiry, TemporaryUrlOptions $options, string $variant = ''): string
+    {
+        if (! $this->default instanceof GeneratesTemporaryUrlsWithOptions) {
+            throw TemporaryUrlNotSupported::withResponseOptions($this->default::class);
+        }
+
+        return $this->default->getTemporaryUrlWithOptions($media, $expiry, $options, $variant);
     }
 
     private function shouldRewrite(Media $media, string $variant): bool

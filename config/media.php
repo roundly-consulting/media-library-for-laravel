@@ -46,6 +46,14 @@ return [
     // Default lifetime (minutes, at least 1) for temporary/signed URLs when not given explicitly.
     'temporary_url_default_lifetime' => 5,
 
+    // Make every getTemporaryUrl() ask the storage origin for response headers, as
+    // getTemporaryUrlWithOptions() always does: on S3 and S3-compatible disks the presigned URL
+    // carries response-content-disposition (attachment unless the type is inline-safe, exactly
+    // like the streaming route) and response-content-type (the file's sniffed type). Off keeps
+    // today's URLs, which an S3 origin may answer by rendering stored HTML or SVG inline.
+    // The next major release turns it on.
+    'temporary_url_response_headers' => false,
+
     // Signed streaming route (private media on disks without native temporaryUrl()).
     // Read as a strict boolean ('false'/'0'/'off'/'no' disable it); any other value throws.
     'stream' => [

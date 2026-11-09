@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\MediaLibrary\Support;
 
 use DateTimeInterface;
+use RoundlyConsulting\MediaLibrary\Contracts\GeneratesTemporaryUrlsWithOptions;
 use RoundlyConsulting\MediaLibrary\Contracts\UrlGenerator;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\TemporaryUrlOptions;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVariant;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\PackageToolkit\Support\Config;
@@ -14,7 +16,7 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  * Builds media URLs from Laravel's filesystem, delegating the public/temporary strategy to the
  * MediaUrlResolver (§9.1). The CdnUrlGenerator (§9.4) is layered on top of this in a later phase.
  */
-final class DefaultUrlGenerator implements UrlGenerator
+final class DefaultUrlGenerator implements GeneratesTemporaryUrlsWithOptions, UrlGenerator
 {
     public function __construct(
         private readonly MediaUrlResolver $resolver,
@@ -32,6 +34,13 @@ final class DefaultUrlGenerator implements UrlGenerator
         $variant = $this->resolveTargetVariant($media, $variant);
 
         return $this->resolver->temporaryUrl($media, $expiry, $variant);
+    }
+
+    public function getTemporaryUrlWithOptions(Media $media, DateTimeInterface $expiry, TemporaryUrlOptions $options, string $variant = ''): string
+    {
+        $variant = $this->resolveTargetVariant($media, $variant);
+
+        return $this->resolver->temporaryUrl($media, $expiry, $variant, $options);
     }
 
     /**

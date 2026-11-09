@@ -7,6 +7,8 @@ namespace RoundlyConsulting\MediaLibrary\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Support\FileNames;
+use RoundlyConsulting\MediaLibrary\Support\ResponseHeaders;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -25,8 +27,13 @@ final class MediaStreamController
         $this->ensureSignedForThisMedia($request, $media);
         $this->ensureFileExists($media, $variant);
 
-        if ($request->boolean('download')) {
-            return $media->toDownloadResponse(null, $variant);
+        // The name is part of the signature (a temporary URL's asked-for file name), never free input.
+        $name = $request->query('name');
+        $name = is_string($name) && $name !== '' ? FileNames::sanitize($name) : null;
+
+        if ($request->boolean('download')
+            || ($name !== null && ! ResponseHeaders::isInlineSafe(ResponseHeaders::mimeType($media, $variant)))) {
+            return $media->toDownloadResponse($name, $variant);
         }
 
         return $media->toResponse($request);

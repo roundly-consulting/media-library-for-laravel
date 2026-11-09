@@ -143,6 +143,8 @@ arch('src uses only allowed namespaces')
         'RoundlyConsulting\PackageToolkit',
         'Illuminate',
         'Symfony\Component\HttpFoundation\StreamedResponse',
+        // RFC 6266 `Content-Disposition` for a presigned URL's response-content-disposition.
+        'Symfony\Component\HttpFoundation\HeaderUtils',
         // The file a validation rule is handed (Laravel's UploadedFile extends it).
         'Symfony\Component\HttpFoundation\File\File',
         'Symfony\Component\HttpKernel\Exception\NotFoundHttpException',

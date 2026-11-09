@@ -14,6 +14,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\TemporaryUrlOptions;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaDoesNotBelongToModel;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
@@ -126,9 +127,10 @@ final readonly class ModelMedia
 
     /**
      * A temporary URL (presigned or signed-route) for the first media in a bucket, else the
-     * bucket's fallback URL, else ''. `$expiry` defaults to `media.temporary_url_default_lifetime`.
+     * bucket's fallback URL, else ''. `$expiry` defaults to `media.temporary_url_default_lifetime`;
+     * `$options` asks for response headers (see `Media::getTemporaryUrlWithOptions()`).
      */
-    public function temporaryUrl(string $bucket = 'default', string $variant = '', ?DateTimeInterface $expiry = null): string
+    public function temporaryUrl(string $bucket = 'default', string $variant = '', ?DateTimeInterface $expiry = null, ?TemporaryUrlOptions $options = null): string
     {
         $media = $this->first($bucket);
 
@@ -136,7 +138,11 @@ final readonly class ModelMedia
             return $this->fallbackUrl($bucket);
         }
 
-        return $media->getTemporaryUrl($expiry ?? $this->defaultTemporaryUrlExpiry(), $variant);
+        $expiry ??= $this->defaultTemporaryUrlExpiry();
+
+        return $options === null
+            ? $media->getTemporaryUrl($expiry, $variant)
+            : $media->getTemporaryUrlWithOptions($expiry, $options, $variant);
     }
 
     /** Delete every media in one of this model's buckets. Returns how many were deleted. */
