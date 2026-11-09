@@ -28,6 +28,12 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   URL generators opt in through the new `Contracts\GeneratesTemporaryUrlsWithOptions`; one that
   implements only `UrlGenerator` keeps working, and only the new calls throw
   `TemporaryUrlNotSupported` for it.
+- Strict mime types, opt-in: with `media.mime_types.strict` on, a bucket without its own
+  `acceptsMimeTypes()` list, a global add and an undeclared bucket accept only
+  `media.mime_types.default` (a built-in list of common images without SVG, PDF, text, CSV, audio,
+  video and Office documents, or your own). The derived validation rules follow. A bucket that
+  really takes anything opts out with `MediaBucket::acceptsAnyMimeType()`. `php artisan about`
+  shows the mode.
 
 ### Changed
 

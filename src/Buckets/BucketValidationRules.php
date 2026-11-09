@@ -44,7 +44,7 @@ final class BucketValidationRules
     {
         $rules = ['file'];
 
-        $mimeTypes = $bucket?->getAcceptedMimeTypes() ?? [];
+        $mimeTypes = self::acceptedMimeTypesFor($bucket);
 
         if ($mimeTypes !== []) {
             $rules[] = 'mimetypes:'.implode(',', $mimeTypes);
@@ -87,6 +87,39 @@ final class BucketValidationRules
         }
 
         return MediaConfig::maxFileSize();
+    }
+
+    /**
+     * The types a file entering `$bucket` (null: a global add or an undeclared bucket) may have:
+     * the bucket's own list, else — under `media.mime_types.strict`, unless the bucket
+     * `acceptsAnyMimeType()` — the default list; empty when any type is accepted. The same list
+     * feeds the derived `mimetypes:` rule and the add-time check, so they never disagree.
+     *
+     * @internal
+     *
+     * @return list<string>
+     */
+    public static function acceptedMimeTypesFor(?MediaBucket $bucket): array
+    {
+        $own = $bucket?->getAcceptedMimeTypes() ?? [];
+
+        if ($own !== [] || $bucket?->isAcceptingAnyMimeType() === true || ! MediaConfig::strictMimeTypes()) {
+            return $own;
+        }
+
+        return MediaConfig::defaultMimeTypes();
+    }
+
+    /** @internal whether a file of `$mimeType` may enter `$bucket` by its type */
+    public static function acceptsMimeType(?MediaBucket $bucket, ?string $mimeType): bool
+    {
+        $accepted = self::acceptedMimeTypesFor($bucket);
+
+        if ($accepted === []) {
+            return true;
+        }
+
+        return $mimeType !== null && in_array($mimeType, $accepted, true);
     }
 
     private function dimensionRule(MediaBucket $bucket): ?string

@@ -74,6 +74,17 @@ return [
     // overrides it; null => no package-level limit, otherwise at least 1.
     'max_file_size' => 1024 * 1024 * 256,
 
+    // Mime types. A bucket with its own ->acceptsMimeTypes() list accepts exactly that list. Without
+    // one it accepts ANY type — HTML and SVG included — unless strict is on: then such a bucket,
+    // and every global add, accepts only `default` (a bucket opts out with ->acceptsAnyMimeType()).
+    // Read as a strict boolean.
+    'mime_types' => [
+        'strict' => false,
+        // null => the built-in list: common images (no SVG), PDF, plain text, CSV, audio, video
+        // and Office documents. Otherwise a non-empty list of mime types.
+        'default' => null,
+    ],
+
     // Remote fetches: addMediaFromUrl() and MediaLibrary::remote()->fetch().
     'remote' => [
         // Extra request headers, sent to the URL's own origin only (see forward_headers_on_redirect).

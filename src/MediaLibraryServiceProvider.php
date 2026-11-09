@@ -151,6 +151,9 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
                 ? self::orInvalid(static fn (): string => 'ON (base URL '.(MediaConfig::cdnBaseUrl() === null ? 'MISSING' : 'SET')
                     .', '.(($disks = MediaConfig::cdnDisks()) === [] ? 'all public disks' : count($disks).' disk(s)').')')
                 : 'OFF',
+            'Strict mime types' => Config::boolean('media.mime_types.strict')
+                ? self::orInvalid(static fn (): string => 'ON ('.count(MediaConfig::defaultMimeTypes()).' type(s))')
+                : 'OFF',
             'Max file size' => self::orInvalid(static fn (): string => ($max = MediaConfig::maxFileSize()) === null ? 'NO LIMIT' : $max.' B'),
             'Draft TTL' => self::orInvalid(static fn (): string => MediaConfig::draftTtl().' min'),
         ];

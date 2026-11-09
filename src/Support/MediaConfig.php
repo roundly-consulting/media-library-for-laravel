@@ -263,6 +263,52 @@ final class MediaConfig
         return $entries;
     }
 
+    /**
+     * The types strict mode accepts where nothing narrower is declared, when
+     * `media.mime_types.default` is unset: documents and media a browser cannot run — no HTML,
+     * SVG, XML or script.
+     */
+    public const array DEFAULT_MIME_TYPES = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/heic', 'image/heif',
+        'application/pdf', 'text/plain', 'text/csv',
+        'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/x-wav',
+        'video/mp4', 'video/webm', 'video/quicktime',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ];
+
+    /** Whether a bucket without its own mime list (and a global add) is held to the default list. */
+    public static function strictMimeTypes(): bool
+    {
+        return Config::boolean('media.mime_types.strict', false);
+    }
+
+    /**
+     * The types strict mode accepts where nothing narrower is declared; the built-in list when
+     * unset. Lower-cased, as the sniffed types they are compared with are.
+     *
+     * @return list<string>
+     */
+    public static function defaultMimeTypes(): array
+    {
+        $key = 'media.mime_types.default';
+        $types = self::unlessBlank(config($key));
+
+        if ($types === null) {
+            return self::DEFAULT_MIME_TYPES;
+        }
+
+        if ($types === []) {
+            throw self::invalid($key, 'a non-empty list of mime types (or null for the built-in list)', $types);
+        }
+
+        return array_values(array_unique(array_map(
+            static fn (string $type): string => strtolower(trim($type)),
+            self::stringList($key, $types),
+        )));
+    }
+
     /** The built-in dedup scopes, by the name `media.deduplicate_scope` takes. */
     public const array DEDUPLICATION_SCOPES = [
         'global' => GlobalDeduplicationScope::class,

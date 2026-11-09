@@ -30,6 +30,8 @@ final class MediaBucket
     /** @var list<string> */
     private array $acceptedMimeTypes = [];
 
+    private bool $acceptsAnyMimeType = false;
+
     private bool $singleFile = false;
 
     private ?int $maxFileSize = null;
@@ -95,17 +97,29 @@ final class MediaBucket
         return $this->acceptedMimeTypes;
     }
 
+    /**
+     * Accept every type even under `media.mime_types.strict` — for a bucket that really takes
+     * anything (a raw file drop). Without strict mode a bucket with no list accepts anything anyway.
+     */
+    public function acceptsAnyMimeType(bool $any = true): self
+    {
+        $this->acceptsAnyMimeType = $any;
+
+        return $this;
+    }
+
+    public function isAcceptingAnyMimeType(): bool
+    {
+        return $this->acceptsAnyMimeType;
+    }
+
+    /**
+     * Whether a file of `$mimeType` may enter: its declared list, else — under
+     * `media.mime_types.strict` — the default list, else anything.
+     */
     public function accepts(?string $mimeType): bool
     {
-        if ($this->acceptedMimeTypes === []) {
-            return true;
-        }
-
-        if ($mimeType === null) {
-            return false;
-        }
-
-        return in_array($mimeType, $this->acceptedMimeTypes, true);
+        return BucketValidationRules::acceptsMimeType($this, $mimeType);
     }
 
     public function singleFile(bool $singleFile = true): self

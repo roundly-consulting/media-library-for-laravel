@@ -15,7 +15,8 @@ use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 /**
  * Applies a bucket's acceptance rules to whatever enters it — an add, a bound draft, an attached,
  * moved or copied media, a replacement — so the rules `rulesFor()` derives are also the rules the
- * package itself enforces: the mime allowlist, the size cap (the bucket's own, else
+ * package itself enforces: the mime allowlist (the bucket's own, else — under
+ * `media.mime_types.strict` — the default list), the size cap (the bucket's own, else
  * `media.max_file_size`) and, for images, the declared min/max dimensions.
  *
  * It also owns the single-file rule: once a media has entered a `singleFile()` bucket, the owner's
@@ -58,7 +59,7 @@ final class BucketGuard
         ?int $width,
         ?int $height,
     ): void {
-        if ($bucket !== null && ! $bucket->accepts($mimeType)) {
+        if (! BucketValidationRules::acceptsMimeType($bucket, $mimeType)) {
             throw FileUnacceptableForBucket::mimeType($mimeType ?? 'unknown', $bucketName);
         }
 
