@@ -43,7 +43,9 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   - `MediaLibrary::adoptUpload($token)` inspects the stored file where it lies (size, sniffed type,
     dimensions, checksum) and applies the bucket's current rules, the dedup scope and
     `singleFile()`. It then moves the file inside storage, with S3 `CopyObject` using the sniffed
-    type and a safe `Content-Disposition`. A repeated call returns the same media.
+    type and a safe `Content-Disposition`. A repeated call returns the same media. Private
+    media adopted in place (multipart, or a PUT that signed its sha256) always get the
+    response-header rule on their temporary URLs.
   - `signUploadParts()` / `completeUpload()` handle multipart uploads. `abortUpload()` cancels.
     `pruneUploads()` and `media:prune-uploads` expire stale tickets and clear leftovers.
     `adoptFromDisk()` adopts a trusted stored file without a ticket.

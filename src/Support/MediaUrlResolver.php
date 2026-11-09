@@ -13,8 +13,10 @@ use RoundlyConsulting\MediaLibrary\Enums\ContentDisposition;
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaCannotBeStreamed;
 use RoundlyConsulting\MediaLibrary\Exceptions\TemporaryUrlNotSupported;
 use RoundlyConsulting\MediaLibrary\Models\Media;
+use RoundlyConsulting\MediaLibrary\Models\MediaUpload;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use RuntimeException;
+use WeakMap;
 
 /**
  * Resolves a media's public and temporary URLs (§9.1).
@@ -26,10 +28,14 @@ use RuntimeException;
  * With response options — asked for, or `media.temporary_url_response_headers` on — a presigned
  * URL carries them as S3's `ResponseContentDisposition` / `ResponseContentType`, so the storage
  * origin answers like the streaming route would: an attachment unless the type is inline-safe.
+ * Media adopted in place from a direct upload always get them.
  */
 final class MediaUrlResolver
 {
     public const ROUTE_NAME = 'media.stream';
+
+    /** @var WeakMap<Media, bool>|null */
+    private ?WeakMap $inPlace = null;
 
     public function publicUrl(Media $media, string $variant = ''): string
     {
@@ -42,7 +48,7 @@ final class MediaUrlResolver
 
     public function temporaryUrl(Media $media, DateTimeInterface $expiry, string $variant = '', ?TemporaryUrlOptions $options = null): string
     {
-        if ($options === null && Config::boolean('media.temporary_url_response_headers')) {
+        if ($options === null && (Config::boolean('media.temporary_url_response_headers') || $this->adoptedInPlace($media))) {
             $options = new TemporaryUrlOptions;
         }
 
@@ -53,6 +59,25 @@ final class MediaUrlResolver
         }
 
         return $this->signedRouteUrl($media, $expiry, $variant, $options);
+    }
+
+    /**
+     * Whether the media is a direct upload adopted in place: its object's stored `Content-Type`
+     * is the one the browser sent, so its temporary URLs always ask for the response headers.
+     * Only private media are ever adopted in place; one indexed lookup per media instance.
+     */
+    private function adoptedInPlace(Media $media): bool
+    {
+        if (! $media->isPrivate() || ! MediaConfig::directUploadsEnabled()) {
+            return false;
+        }
+
+        $this->inPlace ??= new WeakMap;
+
+        return $this->inPlace[$media] ??= MediaUpload::query()
+            ->where('media_uuid', $media->uuid)
+            ->where('in_place', true)
+            ->exists();
     }
 
     /**

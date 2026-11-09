@@ -169,6 +169,8 @@ arch('src uses only allowed namespaces')
         // The answer `on_headers` hands over (Laravel's HTTP client is built on PSR-7).
         'Psr\Http\Message\ResponseInterface',
         'ReflectionClass',
+        // MediaUrlResolver remembers per media instance whether it was adopted in place.
+        'WeakMap',
         'Carbon',
         'Closure',
         'DateTimeInterface',

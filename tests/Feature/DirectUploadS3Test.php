@@ -238,3 +238,20 @@ it('refuses a multipart upload that needs more parts than allowed', function ():
         ->toThrow(DirectUploadsNotSupported::class, 'parts')
         ->and($this->s3->names())->not->toContain('CreateMultipartUpload');
 });
+
+it('always asks for response headers on temporary URLs of media adopted in place', function (): void {
+    $sha = hash_file('sha256', __DIR__.'/../files/note.txt');
+    $upload = MediaLibrary::for(s3User())->upload('note.txt', (int) filesize(__DIR__.'/../files/note.txt'))
+        ->withSha256($sha)->withVisibility('private')->useDisk('media-s3')->toMediaBucket('gallery');
+    $this->s3->objects[$upload->key] = (string) file_get_contents(__DIR__.'/../files/note.txt');
+    $inPlace = MediaLibrary::adoptUpload($upload->token);
+
+    $moved = MediaLibrary::for(s3User())->upload('note.txt', (int) filesize(__DIR__.'/../files/note.txt'))
+        ->withVisibility('private')->useDisk('media-s3')->toMediaBucket('gallery');
+    $this->s3->objects[$moved->key] = (string) file_get_contents(__DIR__.'/../files/note.txt');
+    $other = MediaLibrary::adoptUpload($moved->token);
+
+    expect(s3Query($inPlace->getTemporaryUrl(now()->addMinutes(5))))->toHaveKey('response-content-disposition')
+        ->and(s3Query($other->getTemporaryUrl(now()->addMinutes(5))))->not->toHaveKey('response-content-disposition')
+        ->and($inPlace->getPath())->toBe($upload->key);
+});
