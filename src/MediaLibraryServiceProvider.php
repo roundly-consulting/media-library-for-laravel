@@ -137,7 +137,8 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
                     .', queue '.(MediaConfig::queueName() === null ? 'DEFAULT' : 'SET').')')
                 : 'OFF',
             'Deduplication' => Config::boolean('media.deduplicate', true)
-                ? self::orInvalid(static fn (): string => 'ON ('.MediaConfig::checksumAlgorithm()->value.')')
+                ? self::orInvalid(static fn (): string => 'ON ('.MediaConfig::checksumAlgorithm()->value
+                    .', scope '.(array_search(MediaConfig::deduplicationScope(), MediaConfig::DEDUPLICATION_SCOPES, true) ?: 'CUSTOM').')')
                 : 'OFF',
             'Verify checksum on read' => Config::boolean('media.verify_checksum_on_read') ? 'ON' : 'OFF',
             'Placeholders' => $this->placeholderSummary(),

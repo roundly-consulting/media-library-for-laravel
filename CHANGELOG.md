@@ -6,6 +6,25 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 
 ## Unreleased
 
+### Added
+
+- `media.deduplicate_scope` decides who may share a stored original through dedup. `global` (the
+  default) keeps today's behaviour: identical bytes are stored once for every owner. `owner` shares
+  only between media of the same owning model (global media with global media; drafts never share).
+  `path_prefix` shares only under the same path-generator prefix ahead of the media's uuid, for a
+  layout that puts the tenant first. Or name your own `Contracts\DeduplicationScope`. Adds and
+  replaces honour it, the scope is checked again under the shared row's lock, and with a scope that
+  matches how you measure, per-owner `MediaLibrary::usage()` figures add up to the total.
+  `php artisan about` shows the scope.
+
+### Changed
+
+- Documentation: the `deduplicate` option now explains the multi-tenant risk of the global scope.
+
+### Planned for the next major
+
+- `media.deduplicate_scope` defaults to `owner`. Set it to `global` to keep sharing across owners.
+
 ## 2.0.0 - 2026-11-07
 
 ### Changed

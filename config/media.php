@@ -104,6 +104,18 @@ return [
 
     // Content-addressable dedup + integrity (§7.1/§7.2).
     'deduplicate' => true,         // reuse storage for identical (disk, visibility, bytes)
+
+    // Who may share a stored original through dedup. 'global' (the default) shares identical
+    // bytes across ALL owners: in a multi-tenant app one tenant's row then points at a file
+    // another tenant's upload wrote, under that tenant's path, and deleting that tenant's files
+    // or path prefix outside the package removes a file others still use. Narrow it there:
+    //   'owner'       - only media of the same owning model (global media with global media;
+    //                   drafts never share)
+    //   'path_prefix' - only files under the same path-generator prefix ahead of the media's
+    //                   uuid (e.g. tenants/42/), for a path generator that puts the tenant first
+    //   a class name  - your own RoundlyConsulting\MediaLibrary\Contracts\DeduplicationScope
+    // The next major release changes the default to 'owner'.
+    'deduplicate_scope' => 'global',
     'checksum_algorithm' => 'sha256',          // sha256|sha384|sha512|sha512/256|sha3-256|sha3-384|sha3-512
     'verify_checksum_on_read' => false,        // re-hash on stream; throws ChecksumMismatch on drift
 

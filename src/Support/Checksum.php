@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Support;
 
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
+use RoundlyConsulting\MediaLibrary\Contracts\DeduplicationScope;
+use RoundlyConsulting\MediaLibrary\Deduplication\GlobalDeduplicationScope;
 use RoundlyConsulting\MediaLibrary\Enums\ChecksumAlgorithm;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
@@ -16,9 +19,14 @@ use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
  * The hash is both the dedup key (identical bytes on the same disk+visibility share one physical
  * original) and the integrity baseline (re-hash on read/verify to detect drift). Whether a stored
  * file is still shared is a question about the file, not the hash — see {@see StoredFiles}.
+ * Which rows a lookup may pick is narrowed by the configured {@see DeduplicationScope}.
  */
 final class Checksum
 {
+    public function __construct(
+        private readonly Container $container,
+    ) {}
+
     /** Hash a local file with the configured algorithm, or null when it can't be read. */
     public function forLocalFile(string $path): ?string
     {
@@ -119,12 +127,42 @@ final class Checksum
     /**
      * The existing, non-trashed canonical row whose original this add should reuse, or null when
      * nothing matches (so a fresh copy is stored). Excludes the row itself when given.
+     *
+     * With `$for` — the row being stored — the candidates are narrowed to its dedup scope
+     * (`media.deduplicate_scope`); without it every matching row is a candidate.
      */
-    public function canonicalFor(string $disk, string $visibility, string $checksum, ?int $exceptId = null): ?Media
+    public function canonicalFor(string $disk, string $visibility, string $checksum, ?int $exceptId = null, ?Media $for = null): ?Media
     {
-        return $this->matching($disk, $visibility, $checksum, $exceptId)
-            ->orderBy('id')
-            ->first();
+        $query = $this->matching($disk, $visibility, $checksum, $exceptId);
+
+        if ($for !== null) {
+            $query = $this->scope()->constrain($query, $for);
+        }
+
+        return $query?->orderBy('id')->first();
+    }
+
+    /**
+     * Whether `$canonical` is still inside `$for`'s dedup scope — read again while its row is
+     * locked, so a row moved to another owner (or path) since the lookup is not shared. A locking
+     * read: it sees the latest committed row even inside an older transaction snapshot.
+     */
+    public function stillInScope(Media $canonical, Media $for): bool
+    {
+        $scope = $this->scope();
+
+        if ($scope instanceof GlobalDeduplicationScope) {
+            return true;
+        }
+
+        $query = $scope->constrain(MediaModel::query()->whereKey($canonical->getKey()), $for);
+
+        return $query !== null && $query->sharedLock()->first([$canonical->getKeyName()]) !== null;
+    }
+
+    private function scope(): DeduplicationScope
+    {
+        return $this->container->make(MediaConfig::deduplicationScope());
     }
 
     /**
@@ -132,7 +170,6 @@ final class Checksum
      */
     private function matching(string $disk, string $visibility, string $checksum, ?int $exceptId): Builder
     {
-
         $query = MediaModel::query()
             ->where('disk', $disk)
             ->where('visibility', $visibility)

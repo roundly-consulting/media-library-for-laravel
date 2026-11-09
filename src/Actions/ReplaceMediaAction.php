@@ -190,10 +190,14 @@ final class ReplaceMediaAction
     {
         $canonical = $this->dedupCanonical($media, $checksum);
 
-        return $canonical !== null && $this->files->shareOriginalOf($canonical, static function (string $path) use ($media): void {
-            $media->path = $path;
-            $media->save();
-        });
+        return $canonical !== null && $this->files->shareOriginalOf(
+            $canonical,
+            static function (string $path) use ($media): void {
+                $media->path = $path;
+                $media->save();
+            },
+            fn (Media $locked): bool => $this->checksum->stillInScope($locked, $media),
+        );
     }
 
     /**
@@ -259,7 +263,7 @@ final class ReplaceMediaAction
             return null;
         }
 
-        $canonical = $this->checksum->canonicalFor($media->disk, $media->visibility, $checksum, (int) $media->getKey());
+        $canonical = $this->checksum->canonicalFor($media->disk, $media->visibility, $checksum, (int) $media->getKey(), $media);
 
         return $canonical !== null && Storage::disk($media->disk)->exists($canonical->getPath()) ? $canonical : null;
     }

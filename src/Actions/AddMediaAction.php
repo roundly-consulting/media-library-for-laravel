@@ -233,18 +233,23 @@ final class AddMediaAction
 
     /**
      * Save the row onto an identical stored original when one exists for the same
-     * `(disk, visibility, checksum)`: it points its `path` at that file and writes nothing. Saved
-     * under the original's row lock, so a concurrent delete cannot remove the file before this row
-     * commits. Returns whether it deduplicated (and saved).
+     * `(disk, visibility, checksum)` inside this row's dedup scope: it points its `path` at that
+     * file and writes nothing. Saved under the original's row lock, so a concurrent delete cannot
+     * remove the file before this row commits, and the scope is checked again under that lock.
+     * Returns whether it deduplicated (and saved).
      */
     private function saveDeduplicated(Media $media, string $disk, string $visibility, ?string $checksum): bool
     {
-        $canonical = $this->dedupCanonical($disk, $visibility, $checksum);
+        $canonical = $this->dedupCanonical($media, $disk, $visibility, $checksum);
 
-        return $canonical !== null && $this->files->shareOriginalOf($canonical, static function (string $path) use ($media): void {
-            $media->path = $path;
-            $media->save();
-        });
+        return $canonical !== null && $this->files->shareOriginalOf(
+            $canonical,
+            static function (string $path) use ($media): void {
+                $media->path = $path;
+                $media->save();
+            },
+            fn (Media $locked): bool => $this->checksum->stillInScope($locked, $media),
+        );
     }
 
     /**
@@ -278,13 +283,13 @@ final class AddMediaAction
     }
 
     /** An identical stored original to share — only one whose file is really still there. */
-    private function dedupCanonical(string $disk, string $visibility, ?string $checksum): ?Media
+    private function dedupCanonical(Media $media, string $disk, string $visibility, ?string $checksum): ?Media
     {
         if ($checksum === null || ! Config::boolean('media.deduplicate', true)) {
             return null;
         }
 
-        $canonical = $this->checksum->canonicalFor($disk, $visibility, $checksum);
+        $canonical = $this->checksum->canonicalFor($disk, $visibility, $checksum, for: $media);
 
         return $canonical !== null && Storage::disk($disk)->exists($canonical->getPath()) ? $canonical : null;
     }

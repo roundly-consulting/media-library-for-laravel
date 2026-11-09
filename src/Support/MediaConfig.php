@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\MediaLibrary\Support;
 
+use RoundlyConsulting\MediaLibrary\Contracts\DeduplicationScope;
+use RoundlyConsulting\MediaLibrary\Deduplication\GlobalDeduplicationScope;
+use RoundlyConsulting\MediaLibrary\Deduplication\OwnerDeduplicationScope;
+use RoundlyConsulting\MediaLibrary\Deduplication\PathPrefixDeduplicationScope;
 use RoundlyConsulting\MediaLibrary\Enums\ChecksumAlgorithm;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidVisibility;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
@@ -257,6 +261,40 @@ final class MediaConfig
         }
 
         return $entries;
+    }
+
+    /** The built-in dedup scopes, by the name `media.deduplicate_scope` takes. */
+    public const array DEDUPLICATION_SCOPES = [
+        'global' => GlobalDeduplicationScope::class,
+        'owner' => OwnerDeduplicationScope::class,
+        'path_prefix' => PathPrefixDeduplicationScope::class,
+    ];
+
+    /**
+     * The dedup scope: `global` (the default), `owner`, `path_prefix`, or the class name of a
+     * {@see DeduplicationScope} of your own.
+     *
+     * @return class-string<DeduplicationScope>
+     */
+    public static function deduplicationScope(): string
+    {
+        $key = 'media.deduplicate_scope';
+        $scope = self::unlessBlank(config($key)) ?? 'global';
+        $expectation = 'global, owner, path_prefix or the class name of a '.DeduplicationScope::class;
+
+        if (! is_string($scope)) {
+            throw self::invalid($key, $expectation, $scope);
+        }
+
+        if (isset(self::DEDUPLICATION_SCOPES[$scope])) {
+            return self::DEDUPLICATION_SCOPES[$scope];
+        }
+
+        if (! class_exists($scope) || ! is_subclass_of($scope, DeduplicationScope::class)) {
+            throw self::invalid($key, $expectation, $scope);
+        }
+
+        return $scope;
     }
 
     public static function checksumAlgorithm(): ChecksumAlgorithm

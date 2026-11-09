@@ -92,19 +92,22 @@ final class StoredFiles
      * file nobody else's check removes it, and a delete or move of it waits for the lock.
      *
      * `$persist` receives the shared path and saves the row. Returns false, saving nothing, when
-     * by the time the lock is held `$referrer` is gone or no longer stores those bytes there.
+     * by the time the lock is held `$referrer` is gone or no longer stores those bytes there — or
+     * `$eligible`, asked about the locked row, says it may no longer be shared (a dedup scope).
      *
      * @param  Closure(string): void  $persist
+     * @param  (Closure(Media): bool)|null  $eligible
      */
-    public function shareOriginalOf(Media $referrer, Closure $persist): bool
+    public function shareOriginalOf(Media $referrer, Closure $persist, ?Closure $eligible = null): bool
     {
-        return $referrer->getConnection()->transaction(function () use ($referrer, $persist): bool {
+        return $referrer->getConnection()->transaction(function () use ($referrer, $persist, $eligible): bool {
             $locked = MediaModel::query()->withTrashed()->whereKey($referrer->getKey())->lockForUpdate()->first();
 
             if ($locked === null
                 || $locked->disk !== $referrer->disk
                 || $locked->getPath() !== $referrer->getPath()
-                || $locked->checksum !== $referrer->checksum) {
+                || $locked->checksum !== $referrer->checksum
+                || ($eligible !== null && ! $eligible($locked))) {
                 return false;
             }
 
