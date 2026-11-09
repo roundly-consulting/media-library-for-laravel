@@ -230,6 +230,22 @@ arch('data transfer objects are readonly')
  * S3 disk driver and the direct-upload signer in `Filesystem\` may touch it, behind an
  * `AwsS3V3Adapter` check, so a host without S3 never loads it.
  */
-arch('the AWS SDK is used only in Filesystem')
-    ->expect('Aws')
-    ->toOnlyBeUsedIn('RoundlyConsulting\MediaLibrary\Filesystem');
+it('uses the AWS SDK only in Filesystem', function (): void {
+    // A token scan, not an arch expectation over the `Aws` namespace: that one autoloads the
+    // whole SDK, which on PHP 8.6 trips the SDK's own deprecations.
+    $users = [];
+
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__.'/../../src', FilesystemIterator::SKIP_DOTS)) as $file) {
+        $tokens = PhpToken::tokenize((string) file_get_contents((string) $file));
+        $names = array_filter($tokens, static fn (PhpToken $token): bool => $token->is([T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED])
+            && str_starts_with(ltrim($token->text, '\\'), 'Aws\\'));
+
+        if ($names !== []) {
+            $users[] = str_replace(realpath(__DIR__.'/../../src').'/', '', (string) realpath((string) $file));
+        }
+    }
+
+    sort($users);
+
+    expect($users)->toBe(['Filesystem/PresignedS3Driver.php', 'Filesystem/PresigningS3Adapter.php', 'Filesystem/S3UploadSigner.php']);
+});
