@@ -49,6 +49,106 @@ final class MediaConfig
         return self::string('media.table_name', 'media');
     }
 
+    public static function uploadsTableName(): string
+    {
+        return self::string('media.direct_uploads.table_name', 'media_uploads');
+    }
+
+    public static function directUploadsEnabled(): bool
+    {
+        return Config::boolean('media.direct_uploads.enabled', false);
+    }
+
+    public static function stagingPrefix(): string
+    {
+        $prefix = trim(self::string('media.direct_uploads.staging_prefix', '_uploads/'), '/');
+
+        if ($prefix === '' || str_contains($prefix, '..')) {
+            throw self::invalid('media.direct_uploads.staging_prefix', 'a non-empty relative directory', $prefix);
+        }
+
+        return $prefix.'/';
+    }
+
+    /** The disk tickets upload to before adoption, or null for the media's own disk. */
+    public static function stagingDisk(): ?string
+    {
+        return self::optionalString('media.direct_uploads.staging_disk');
+    }
+
+    /** Minutes a ticket and its signed URLs live (at least 1). */
+    public static function uploadTtl(): int
+    {
+        return Config::integer('media.direct_uploads.ttl', 15, 1);
+    }
+
+    public static function maxPendingUploads(): int
+    {
+        return Config::integer('media.direct_uploads.max_pending_per_owner', 20, 1);
+    }
+
+    public static function sniffBytes(): int
+    {
+        return Config::integer('media.direct_uploads.sniff_bytes', 65536, 512);
+    }
+
+    public static function probeMaxBytes(): int
+    {
+        return Config::integer('media.direct_uploads.probe_max_bytes', 16 * 1024 * 1024, 0);
+    }
+
+    /** Minutes after a ticket expires before pruning clears it (at least 0). */
+    public static function uploadPruneGrace(): int
+    {
+        return Config::integer('media.direct_uploads.prune_grace', 60, 0);
+    }
+
+    /**
+     * Prefixes `adoptFromDisk()` accepts besides the staging prefix, each ending in a slash.
+     *
+     * @return list<string>
+     */
+    public static function adoptablePrefixes(): array
+    {
+        $key = 'media.direct_uploads.adoptable_prefixes';
+        $prefixes = [];
+
+        foreach (self::stringList($key, self::unlessBlank(config($key)) ?? []) as $prefix) {
+            $prefix = trim($prefix, '/');
+
+            if ($prefix === '' || str_contains($prefix, '..')) {
+                throw self::invalid($key, 'a list of non-empty relative directories', $prefix);
+            }
+
+            $prefixes[] = $prefix.'/';
+        }
+
+        return $prefixes;
+    }
+
+    /** Multipart part size in bytes (at least S3's 5 MiB minimum). */
+    public static function multipartPartSize(): int
+    {
+        return Config::integer('media.direct_uploads.multipart.part_size', 16 * 1024 * 1024, 5 * 1024 * 1024);
+    }
+
+    public static function multipartMaxParts(): int
+    {
+        return Config::integer('media.direct_uploads.multipart.max_parts', 10000, 1, 10000);
+    }
+
+    /** How tickets on `$disk` upload: `put` (default) or `post`. */
+    public static function uploadMethod(string $disk): string
+    {
+        return Config::oneOf("media.direct_uploads.disks.{$disk}.method", ['put', 'post'], 'put');
+    }
+
+    /** Whether `$disk`'s own sha256 of a PUT that signed one is trusted instead of re-hashing. */
+    public static function trustsStorageChecksums(string $disk): bool
+    {
+        return Config::boolean("media.direct_uploads.disks.{$disk}.storage_checksums", false);
+    }
+
     /** The queue connection for variant jobs, or null for the default connection. */
     public static function queueConnection(): ?string
     {

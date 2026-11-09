@@ -10,6 +10,9 @@ namespace RoundlyConsulting\MediaLibrary\DataTransferObjects;
  * Every adder (`addMediaFromUrl`, `addMediaFromString`, …) resolves the source down to a
  * readable local path plus its detected metadata, so the storage layer has a single shape
  * to work with regardless of where the bytes came from.
+ *
+ * An adopted direct upload carries its {@see StoredObject} instead: the bytes stay in storage, and
+ * `path` is a local copy kept only for placeholders (or empty).
  */
 final readonly class AddedFile
 {
@@ -21,5 +24,6 @@ final readonly class AddedFile
         public ?string $extension,
         public int $size,
         public bool $isTemporary = false,
+        public ?StoredObject $object = null,
     ) {}
 }

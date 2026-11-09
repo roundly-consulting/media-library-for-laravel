@@ -8,13 +8,18 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
+use RoundlyConsulting\MediaLibrary\Enums\DirectUploadStatus;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadsNotSupported;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\InvalidBase64Data;
 use RoundlyConsulting\MediaLibrary\Exceptions\RemoteFileRejected;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
+use RoundlyConsulting\MediaLibrary\Models\MediaUpload;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\RemoteFileFetcher;
+use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
+use RoundlyConsulting\MediaLibrary\Uploads\InspectStoredObject;
 use Throwable;
 
 /**
@@ -121,6 +126,36 @@ final class FileAdderFactory
         } finally {
             fclose($source);
         }
+    }
+
+    /**
+     * A file already in storage, adopted where it lies — inspected in place and later moved onto
+     * the media's path inside storage, never copied through the application. Only a path under
+     * the staging prefix or `media.direct_uploads.adoptable_prefixes` that no media and no live
+     * ticket uses can be adopted: never hand it a path a client chose.
+     *
+     * @throws DirectUploadsNotSupported when direct uploads are off or the path is not adoptable
+     */
+    public function adoptFromDisk(string $path, ?string $disk = null): AddedFile
+    {
+        if (! MediaConfig::directUploadsEnabled()) {
+            throw DirectUploadsNotSupported::disabled();
+        }
+
+        $disk ??= $this->configDisk();
+        $path = ltrim($path, '/');
+        $prefixes = array_merge([MediaConfig::stagingPrefix()], MediaConfig::adoptablePrefixes());
+        $underPrefix = array_filter($prefixes, static fn (string $prefix): bool => str_starts_with($path, $prefix));
+
+        if ($underPrefix === []
+            || str_contains($path, '..')
+            || app(StoredFiles::class)->isReferencedByOthers($disk, $path, null)
+            || MediaUpload::query()->where('disk', $disk)->where('path', $path)
+                ->whereIn('status', [DirectUploadStatus::Pending->value, DirectUploadStatus::Adopting->value])->exists()) {
+            throw DirectUploadsNotSupported::pathNotAdoptable($path);
+        }
+
+        return app(InspectStoredObject::class)->inspect($disk, $path, basename($path));
     }
 
     public function fromString(string $contents): AddedFile

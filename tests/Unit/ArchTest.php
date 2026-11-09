@@ -90,6 +90,12 @@ ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\MediaLibrary', [
     'RoundlyConsulting\MediaLibrary\Placeholders\PlaceholderDataUri',
     'RoundlyConsulting\MediaLibrary\Placeholders\ThumbHashEncoder',
     'RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory',
+    // S3's checksum fields are base64 of the binary digest: transport encoding, as above.
+    'RoundlyConsulting\MediaLibrary\Filesystem\S3UploadSigner',
+    // The lookup digest of a direct-upload ticket's 285-bit random secret (`hash('sha256')`), so a
+    // leaked table adopts nothing. A one-way lookup of a high-entropy token — no key, no password,
+    // nothing for crypto-for-laravel to centralize; the class holds nothing else.
+    'RoundlyConsulting\MediaLibrary\Uploads\UploadToken',
 ]);
 
 /**
@@ -153,6 +159,9 @@ arch('src uses only allowed namespaces')
         // The `presigned-s3` disk driver (Filesystem\). Not in `require`: like Laravel's own `s3`
         // driver, the S3 stack is the host's, present exactly when it configures S3 (`suggest`).
         'Aws\S3\S3Client',
+        // Direct uploads: POST policies and > 5 GiB server-side copies (Filesystem\S3UploadSigner).
+        'Aws\S3\PostObjectV4',
+        'Aws\S3\ObjectCopier',
         // The Flysystem interfaces Laravel's AwsS3V3Adapter is built from (league/flysystem
         // ships with illuminate/filesystem).
         'League\Flysystem\FilesystemOperator',
@@ -213,3 +222,12 @@ arch('exceptions extend the package base exception')
 arch('data transfer objects are readonly')
     ->expect('RoundlyConsulting\MediaLibrary\DataTransferObjects')
     ->toBeReadonly();
+
+/**
+ * The AWS SDK is the host's (it comes with `league/flysystem-aws-s3-v3`, a `suggest`): only the
+ * S3 disk driver and the direct-upload signer in `Filesystem\` may touch it, behind an
+ * `AwsS3V3Adapter` check, so a host without S3 never loads it.
+ */
+arch('the AWS SDK is used only in Filesystem')
+    ->expect('Aws')
+    ->toOnlyBeUsedIn('RoundlyConsulting\MediaLibrary\Filesystem');

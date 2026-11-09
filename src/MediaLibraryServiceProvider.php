@@ -18,6 +18,7 @@ use RoundlyConsulting\MediaLibrary\Commands\BackfillVariantSizesCommand;
 use RoundlyConsulting\MediaLibrary\Commands\CleanCommand;
 use RoundlyConsulting\MediaLibrary\Commands\ClearCommand;
 use RoundlyConsulting\MediaLibrary\Commands\PruneDraftsCommand;
+use RoundlyConsulting\MediaLibrary\Commands\PruneUploadsCommand;
 use RoundlyConsulting\MediaLibrary\Commands\RegenerateVariantsCommand;
 use RoundlyConsulting\MediaLibrary\Commands\VerifyCommand;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
@@ -54,6 +55,7 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
                 CleanCommand::class,
                 ClearCommand::class,
                 PruneDraftsCommand::class,
+                PruneUploadsCommand::class,
                 VerifyCommand::class,
                 BackfillVariantSizesCommand::class,
             ])
@@ -153,6 +155,10 @@ final class MediaLibraryServiceProvider extends PackageServiceProvider
                 : 'OFF',
             'Strict mime types' => Config::boolean('media.mime_types.strict')
                 ? self::orInvalid(static fn (): string => 'ON ('.count(MediaConfig::defaultMimeTypes()).' type(s))')
+                : 'OFF',
+            'Direct uploads' => Config::boolean('media.direct_uploads.enabled')
+                ? self::orInvalid(static fn (): string => 'ON (ttl '.MediaConfig::uploadTtl().' min, staging '
+                    .(MediaConfig::stagingDisk() === null ? 'SAME DISK' : 'CUSTOM').')')
                 : 'OFF',
             'Max file size' => self::orInvalid(static fn (): string => ($max = MediaConfig::maxFileSize()) === null ? 'NO LIMIT' : $max.' B'),
             'Draft TTL' => self::orInvalid(static fn (): string => MediaConfig::draftTtl().' min'),

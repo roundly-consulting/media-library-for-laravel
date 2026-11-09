@@ -32,14 +32,19 @@ it('never auto-loads its migrations', function (): void {
 it('publishes each migration into the host timestamped', function (): void {
     $sources = glob(__DIR__.'/../../database/migrations/*.php') ?: [];
 
-    expect($sources)->toHaveCount(1);
+    expect($sources)->toHaveCount(2);
 
     Artisan::call('vendor:publish', ['--tag' => 'media-migrations', '--force' => true]);
 
     $published = File::glob(database_path('migrations/*_create_media_table.php'));
+    $uploads = File::glob(database_path('migrations/*_create_media_uploads_table.php'));
 
     expect($published)->toHaveCount(1)
-        ->and(basename((string) $published[0]))->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_create_media_table\.php$/');
+        ->and(basename((string) $published[0]))->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_create_media_table\.php$/')
+        ->and($uploads)->toHaveCount(1)
+        ->and(basename((string) $uploads[0]))->toMatch('/^\d{4}_\d{2}_\d{2}_\d{6}_create_media_uploads_table\.php$/')
+        // The tickets table comes after the media table (it references media by id, without a key).
+        ->and(basename((string) $uploads[0]) > basename((string) $published[0]))->toBeTrue();
 });
 
 /**

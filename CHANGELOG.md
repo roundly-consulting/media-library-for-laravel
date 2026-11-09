@@ -34,6 +34,27 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
   video and Office documents, or your own). The derived validation rules follow. A bucket that
   really takes anything opts out with `MediaBucket::acceptsAnyMimeType()`. `php artisan about`
   shows the mode.
+- Direct uploads, opt-in (`media.direct_uploads.enabled`): the browser uploads straight to storage
+  and the package adopts the file without copying it through the application.
+  - `MediaLibrary::upload($fileName, $size)` / `MediaLibrary::for($model)->upload()` signs a PUT, an
+    S3 POST policy (a signed size cap) or an S3 multipart upload and returns a `DirectUpload` with
+    a one-time token. Chain `declaringType()`, `withSha256()`, `multipart()`, `forActor()`,
+    `expiresIn()`, `asDraft()` and the usual add options.
+  - `MediaLibrary::adoptUpload($token)` inspects the stored file where it lies (size, sniffed type,
+    dimensions, checksum) and applies the bucket's current rules, the dedup scope and
+    `singleFile()`. It then moves the file inside storage, with S3 `CopyObject` using the sniffed
+    type and a safe `Content-Disposition`. A repeated call returns the same media.
+  - `signUploadParts()` / `completeUpload()` handle multipart uploads. `abortUpload()` cancels.
+    `pruneUploads()` and `media:prune-uploads` expire stale tickets and clear leftovers.
+    `adoptFromDisk()` adopts a trusted stored file without a ticket.
+  - New events `DirectUploadHasBeenAdopted` and `DirectUploadHasBeenRejected`.
+  - New exceptions `DirectUploadNotFound`, `DirectUploadExpired`, `DirectUploadIncomplete`,
+    `DirectUploadsNotSupported` and `DirectUploadActorMismatch`.
+  - New fake assertions `assertUploadIssued`, `assertNoUploadIssued`, `assertUploadAdopted`,
+    `assertNothingAdopted`, `assertUploadAborted`, `assertUploadsPruned` and
+    `assertUploadsNotPruned`.
+  - Tickets live in a new `media_uploads` table (additive migration). Publish the migrations again
+    and run `migrate` when upgrading.
 
 ### Changed
 

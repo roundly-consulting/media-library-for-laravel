@@ -31,7 +31,7 @@ $migrations = __DIR__.'/../../database/migrations';
 /**
  * P — the publish-only guards. The fleet publishes migrations timestamped rather than
  * auto-loading them; doing both runs both copies and dies on a duplicate table (bug #5, on three
- * packages). `1` pins the file count so neither check can pass over an empty or relocated
+ * packages). `2` pins the file count (media + the direct-upload tickets) so neither check can pass over an empty or relocated
  * directory.
  */
 it('never auto-loads its migration — the host publishes it', function (): void {
@@ -39,7 +39,7 @@ it('never auto-loads its migration — the host publishes it', function (): void
 });
 
 it('publishes its migration timestamp-injected into the host', function (): void {
-    expect(MediaLibraryServiceProvider::class)->toPublishMigrationsTimestamped('media-migrations', 1);
+    expect(MediaLibraryServiceProvider::class)->toPublishMigrationsTimestamped('media-migrations', 2);
 });
 
 /**

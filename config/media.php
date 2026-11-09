@@ -74,6 +74,38 @@ return [
     // overrides it; null => no package-level limit, otherwise at least 1.
     'max_file_size' => 1024 * 1024 * 256,
 
+    // Direct uploads: the browser PUTs/POSTs the file straight to storage on a presigned URL and
+    // the package adopts the stored object — inspected in storage, moved there, never copied
+    // through the app. Off by default. See the docs before turning it on.
+    'direct_uploads' => [
+        'enabled' => false,
+        'table_name' => 'media_uploads',
+
+        // Where tickets upload to before adoption (a private prefix). staging_disk null => the
+        // media's own disk; another disk must be an S3 bucket the same credentials can copy from.
+        'staging_prefix' => '_uploads/',
+        'staging_disk' => null,
+
+        'ttl' => 15,                        // minutes a ticket (and its signed URLs) lives, at least 1
+        'max_pending_per_owner' => 20,      // pending tickets per owner (or actor), at least 1
+        'sniff_bytes' => 65536,             // bytes read to sniff the type, at least 512
+        'probe_max_bytes' => 16 * 1024 * 1024, // largest image whose bytes are kept for placeholders
+        'prune_grace' => 60,                // minutes after expiry before media:prune-uploads clears a ticket
+
+        // Prefixes adoptFromDisk() accepts besides staging_prefix, e.g. ['imports/'].
+        'adoptable_prefixes' => [],
+
+        'multipart' => [
+            'part_size' => 16 * 1024 * 1024,   // bytes, at least 5 MiB (S3's minimum)
+            'max_parts' => 10000,
+        ],
+
+        // Per disk: 'method' => 'put' (default) or 'post' (S3 POST policy: the size cap is part of
+        // the signature; not on Cloudflare R2), and 'storage_checksums' => true to trust the
+        // store's own sha256 for a PUT that signed one (verify with your store first).
+        'disks' => [],
+    ],
+
     // Mime types. A bucket with its own ->acceptsMimeTypes() list accepts exactly that list. Without
     // one it accepts ANY type — HTML and SVG included — unless strict is on: then such a bucket,
     // and every global add, accepts only `default` (a bucket opts out with ->acceptsAnyMimeType()).

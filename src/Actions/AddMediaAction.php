@@ -14,6 +14,7 @@ use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
 use RoundlyConsulting\MediaLibrary\Contracts\HasMedia;
 use RoundlyConsulting\MediaLibrary\Contracts\ImageDriver;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\StoredObject;
 use RoundlyConsulting\MediaLibrary\Events\MediaHasBeenAdded;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileCannotBeWritten;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileDoesNotExist;
@@ -26,7 +27,9 @@ use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\ImageDecodeGuard;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use RoundlyConsulting\MediaLibrary\Support\ResponseHeaders;
 use RoundlyConsulting\MediaLibrary\Support\StoredFiles;
+use RoundlyConsulting\MediaLibrary\Uploads\StoredObjects;
 use RoundlyConsulting\MediaLibrary\Variants\VariantResolver;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use Throwable;
@@ -38,6 +41,10 @@ use Throwable;
  * The bucket's mime allowlist, size cap and image dimensions are checked before anything is
  * written; a `singleFile()` bucket's previous media is removed only once the new one is stored.
  * Should a host's transaction roll the new row back, the files this add wrote are deleted again.
+ *
+ * A source that is already in storage (an adopted direct upload, `adoptFromDisk()`) is never
+ * written: it was inspected where it lies, and it is moved inside storage onto the media's path —
+ * or kept where it is for an in-place upload — and moved back should the row roll back.
  */
 final class AddMediaAction
 {
@@ -50,6 +57,7 @@ final class AddMediaAction
         private readonly PlaceholderGenerator $placeholders,
         private readonly BucketGuard $guard,
         private readonly StoredFiles $files,
+        private readonly StoredObjects $objects,
     ) {}
 
     public function execute(PendingFileAddState $state): Media
@@ -72,10 +80,14 @@ final class AddMediaAction
 
         $bucket = $this->guard->bucketFor($state->owner, $state->bucket);
 
+        $object = $state->file->object;
+
         // What a viewer sees: a phone photo stored sideways with an EXIF turn records upright.
-        $dimensions = str_starts_with((string) $state->file->mimeType, 'image/')
-            ? ExifOrientation::displayDimensions($state->file->path)
-            : null;
+        $dimensions = match (true) {
+            $object !== null => $object->width !== null && $object->height !== null ? [$object->width, $object->height] : null,
+            str_starts_with((string) $state->file->mimeType, 'image/') => ExifOrientation::displayDimensions($state->file->path),
+            default => null,
+        };
 
         $this->guard->ensureAccepts(
             $bucket,
@@ -93,7 +105,7 @@ final class AddMediaAction
 
         $media = $this->makeMedia($state, $disk, $variantsDisk, $visibility);
 
-        $checksum = $this->checksum->forLocalFile($state->file->path);
+        $checksum = $object !== null ? $object->checksum : $this->checksum->forLocalFile($state->file->path);
         $media->checksum = $checksum;
 
         if ($dimensions !== null) {
@@ -105,13 +117,13 @@ final class AddMediaAction
         $shared = $this->saveDeduplicated($media, $disk, $visibility, $checksum);
 
         if (! $shared) {
-            $this->writeOriginal($media, $state, $disk, $visibility);
+            $this->placeOriginal($media, $state, $disk, $visibility);
 
             try {
                 $media->save();
             } catch (Throwable $exception) {
-                // No row will ever point at the file just written for it.
-                Storage::disk($disk)->delete($media->getPath());
+                // No row will ever point at the file just written (or moved) for it.
+                $this->undoPlacement($media, $object, $disk);
 
                 throw $exception;
             }
@@ -120,15 +132,25 @@ final class AddMediaAction
         // The shared file can vanish between the check and the save (its last other referrer
         // force-deleted meanwhile): then this row gets its own copy after all.
         if ($shared && ! Storage::disk($disk)->exists($media->getPath())) {
-            $this->writeOriginal($media, $state, $disk, $visibility);
+            $this->placeOriginal($media, $state, $disk, $visibility);
             $media->save();
             $shared = false;
         }
 
         // A host's transaction can still roll the row back. A shared original stays: its other
-        // referrer still points at it.
-        if (! $shared) {
+        // referrer still points at it. A moved upload goes back where it came from.
+        // One adopted in place stays put either way: its ticket can be adopted again.
+        if (! $shared && $object !== null) {
+            if ($this->wasMoved($media, $object, $disk)) {
+                $this->objects->moveBackAfterRollBack($media, $object->disk, $object->path, $disk, $media->getPath(), $object->size, $visibility);
+            }
+        } elseif (! $shared) {
             $this->files->deleteAfterRollBack($media, $disk, $media->getPath());
+        }
+
+        // Identical content was already stored: the adopted upload is not needed once this commits.
+        if ($shared && $object !== null) {
+            $this->files->deleteAfterCommit($media, $object->disk, $object->path);
         }
 
         if (! $state->draft && $state->owner instanceof Model) {
@@ -154,8 +176,9 @@ final class AddMediaAction
      */
     private function capturePlaceholders(Media $media, PendingFileAddState $state): void
     {
-        // Only raster images are ever decoded (an SVG never is).
-        if (! ImageDecodeGuard::decodes($media->mime_type)) {
+        // Only raster images are ever decoded (an SVG never is); an adopted upload too large to
+        // keep a local copy of gets its placeholders from the variants pass instead.
+        if (! ImageDecodeGuard::decodes($media->mime_type) || ! is_file($state->file->path)) {
             return;
         }
 
@@ -191,7 +214,7 @@ final class AddMediaAction
     ): Media {
         $media = MediaModel::new();
 
-        $media->uuid = (string) Str::uuid();
+        $media->uuid = $state->uuid ?? (string) Str::uuid();
         $media->bucket_name = $state->bucket;
         $media->name = FileNames::displayName($state->name ?? $state->file->name);
         $media->file_name = $this->fileName($state);
@@ -250,6 +273,50 @@ final class AddMediaAction
             },
             fn (Media $locked): bool => $this->checksum->stillInScope($locked, $media),
         );
+    }
+
+    /**
+     * Give the row its own original: write the local source, or place a stored object — kept
+     * where it is when it was uploaded in place, else moved inside storage to a free path.
+     */
+    private function placeOriginal(Media $media, PendingFileAddState $state, string $disk, string $visibility): void
+    {
+        $object = $state->file->object;
+
+        if ($object === null) {
+            $this->writeOriginal($media, $state, $disk, $visibility);
+
+            return;
+        }
+
+        if ($object->inPlace && $object->disk === $disk && ! $this->files->isReferencedByOthers($disk, $object->path, $media->getKey())) {
+            $media->path = $object->path;
+
+            return;
+        }
+
+        $target = $this->files->freePath($media, $disk);
+        $this->objects->move($object->disk, $object->path, $disk, $target, $object->size, $media->mime_type, ResponseHeaders::storedDisposition($media), $visibility);
+        $media->path = $target;
+    }
+
+    private function wasMoved(Media $media, StoredObject $object, string $disk): bool
+    {
+        return $object->disk !== $disk || $object->path !== $media->getPath();
+    }
+
+    /** After a failed save: delete a written file, put a moved object back, leave an in-place one. */
+    private function undoPlacement(Media $media, ?StoredObject $object, string $disk): void
+    {
+        if ($object === null) {
+            Storage::disk($disk)->delete($media->getPath());
+
+            return;
+        }
+
+        if ($this->wasMoved($media, $object, $disk)) {
+            $this->objects->move($disk, $media->getPath(), $object->disk, $object->path, $object->size, null, 'attachment', 'private');
+        }
     }
 
     /**

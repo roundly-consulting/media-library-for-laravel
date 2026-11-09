@@ -28,4 +28,16 @@ final class FileUnacceptableForBucket extends MediaLibraryException
             "The image dimensions ({$actual}) are outside the dimensions media bucket [{$bucket}] accepts."
         );
     }
+
+    /** A direct upload's bytes are not the ones whose sha256 the browser declared. */
+    public static function checksumMismatch(string $bucket): self
+    {
+        return new self("The uploaded file does not match the checksum declared for media bucket [{$bucket}].");
+    }
+
+    /** The model a direct upload was issued for is gone. */
+    public static function ownerGone(string $bucket): self
+    {
+        return new self("The owner of media bucket [{$bucket}] no longer exists.");
+    }
 }

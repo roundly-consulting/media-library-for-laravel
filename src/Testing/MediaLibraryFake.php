@@ -11,11 +11,19 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketGuard;
+use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\Contracts\FileNamer;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\DirectUpload;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\UploadPart;
+use RoundlyConsulting\MediaLibrary\Enums\DirectUploadMethod;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadActorMismatch;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadNotFound;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadsNotSupported;
 use RoundlyConsulting\MediaLibrary\Exceptions\DiskDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
+use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
@@ -24,6 +32,7 @@ use RoundlyConsulting\MediaLibrary\Support\ExifOrientation;
 use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use RoundlyConsulting\MediaLibrary\Uploads\DirectUploadState;
 use SensitiveParameter;
 
 /**
@@ -62,6 +71,195 @@ final class MediaLibraryFake extends MediaLibraryManager
 {
     /** @var array<string, list<Call>> */
     private array $calls = [];
+
+    /** @var array<string, DirectUploadState> issued tickets, by token */
+    private array $tickets = [];
+
+    /** @var array<string, string> the media uuid each ticket would adopt into, by token */
+    private array $ticketUuids = [];
+
+    /** @var array<string, Media> adopted media, by token */
+    private array $adopted = [];
+
+    /**
+     * Records the upload instead of signing it: the URL is `https://fake.test/uploads/{ulid}` and
+     * no ticket row is written. The bucket's cap and declared type are still checked, and direct
+     * uploads must be enabled, exactly as for the real manager.
+     */
+    public function issueUpload(DirectUploadState $state): DirectUpload
+    {
+        if (! MediaConfig::directUploadsEnabled()) {
+            throw DirectUploadsNotSupported::disabled();
+        }
+
+        $guard = $this->guard();
+
+        if (! $state->draft) {
+            $guard->ensureSavedOwner($state->owner);
+        }
+
+        $bucket = $guard->bucketFor($state->owner, $state->bucket);
+        $cap = BucketValidationRules::maxFileSizeFor($bucket);
+
+        if ($cap !== null && $state->size > $cap) {
+            throw FileUnacceptableForBucket::tooLarge($state->size, $cap, $state->bucket);
+        }
+
+        if ($state->declaredType !== null && ! BucketValidationRules::acceptsMimeType($bucket, $state->declaredType)) {
+            throw FileUnacceptableForBucket::mimeType($state->declaredType, $state->bucket);
+        }
+
+        $disk = $this->disks()->resolveOriginalDisk($state->diskOverride, $bucket);
+        $id = strtolower((string) Str::ulid());
+        $token = $id.'.'.Str::random(48);
+        $uuid = (string) Str::uuid();
+        $partSize = $state->multipart ? ($state->partSize ?? MediaConfig::multipartPartSize()) : null;
+
+        $this->tickets[$token] = $state;
+        $this->ticketUuids[$token] = $uuid;
+        $owner = $state->owner instanceof Model && ! $state->draft ? $this->ownerKey($state->owner) : null;
+        $this->record('uploadIssued', owner: $owner, bucket: $state->bucket, disk: $disk, token: $token);
+
+        return new DirectUpload(
+            token: $token,
+            method: $state->multipart ? DirectUploadMethod::Multipart : DirectUploadMethod::Put,
+            url: $state->multipart ? '' : "https://fake.test/uploads/{$id}",
+            headers: [],
+            fields: [],
+            key: MediaConfig::stagingPrefix().$id,
+            maxSize: $state->size,
+            sizeEnforcedBySignature: false,
+            expiresAt: CarbonImmutable::now()->addMinutes($state->expiresIn ?? MediaConfig::uploadTtl()),
+            mediaUuid: $uuid,
+            partSize: $partSize,
+            partCount: $partSize === null ? null : (int) ceil($state->size / $partSize),
+        );
+    }
+
+    /**
+     * Adopts a ticket this fake issued: returns an unsaved media carrying what the real adoption
+     * would store (the reserved uuid, owner, bucket, disk, visibility). A token it did not issue
+     * throws {@see DirectUploadNotFound}; adopting again returns the same media.
+     */
+    public function adoptUpload(#[SensitiveParameter] string $token, ?Model $actor = null): Media
+    {
+        if (isset($this->adopted[$token])) {
+            return $this->adopted[$token];
+        }
+
+        $state = $this->tickets[$token] ?? throw DirectUploadNotFound::forToken();
+
+        if ($state->actor !== null && ($actor === null || ! $actor->is($state->actor))) {
+            throw DirectUploadActorMismatch::make();
+        }
+
+        $bucket = $this->guard()->bucketFor($state->owner, $state->bucket);
+        $disk = $this->disks()->resolveOriginalDisk($state->diskOverride, $bucket);
+
+        $media = MediaModel::new();
+        $media->uuid = $this->ticketUuids[$token];
+        $media->bucket_name = $state->bucket;
+        $media->file_name = FileNames::sanitize($state->fileName);
+        $media->name = FileNames::displayName($state->name ?? pathinfo($media->file_name, PATHINFO_FILENAME));
+        $media->mime_type = $state->declaredType;
+        $media->extension = FileNames::extensionOf($media->file_name);
+        $media->size = $state->size;
+        $media->disk = $disk;
+        $media->visibility = $state->visibility ?? $bucket?->getVisibility() ?? MediaConfig::defaultVisibility();
+        $media->custom_properties = $state->customProperties;
+        $media->generated_variants = [];
+
+        if (! $state->draft && $state->owner instanceof Model) {
+            $media->model_type = $state->owner->getMorphClass();
+            $media->model_id = $state->owner->getKey();
+        }
+
+        $this->adopted[$token] = $media;
+        $this->record('uploadAdopted', result: $media, owner: $this->ownerKeyOf($media), bucket: $state->bucket, disk: $disk, token: $token);
+
+        return $media;
+    }
+
+    /**
+     * @param  list<int>  $parts
+     * @return list<UploadPart>
+     */
+    public function signUploadParts(#[SensitiveParameter] string $token, array $parts): array
+    {
+        $state = $this->tickets[$token] ?? throw DirectUploadNotFound::forToken();
+
+        if (! $state->multipart) {
+            throw DirectUploadNotFound::forToken();
+        }
+
+        $id = Str::before($token, '.');
+
+        return array_map(static fn (int $part): UploadPart => new UploadPart($part, "https://fake.test/uploads/{$id}/parts/{$part}"), $parts);
+    }
+
+    /**
+     * @param  array<int, string>  $parts
+     */
+    public function completeUpload(#[SensitiveParameter] string $token, array $parts, ?Model $actor = null): Media
+    {
+        return $this->adoptUpload($token, $actor);
+    }
+
+    public function abortUpload(#[SensitiveParameter] string $token): void
+    {
+        if (isset($this->tickets[$token]) && ! isset($this->adopted[$token])) {
+            unset($this->tickets[$token]);
+            $this->record('uploadAborted', token: $token);
+        }
+    }
+
+    public function pruneUploads(): int
+    {
+        $this->record('uploadsPruned');
+
+        return 0;
+    }
+
+    public function assertUploadIssued(?string $bucket = null, ?Model $to = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('uploadIssued', bucket: $bucket, to: $to),
+            'Expected a direct upload to be issued'.$this->describe($bucket, $to).', but none was.',
+        );
+    }
+
+    public function assertNoUploadIssued(): void
+    {
+        $this->assertNone('uploadIssued', 'Expected no direct upload to be issued');
+    }
+
+    public function assertUploadAdopted(?string $bucket = null, ?Model $to = null): void
+    {
+        Assert::assertNotEmpty(
+            $this->matching('uploadAdopted', bucket: $bucket, to: $to),
+            'Expected a direct upload to be adopted'.$this->describe($bucket, $to).', but none was.',
+        );
+    }
+
+    public function assertNothingAdopted(): void
+    {
+        $this->assertNone('uploadAdopted', 'Expected no direct upload to be adopted');
+    }
+
+    public function assertUploadAborted(): void
+    {
+        Assert::assertNotEmpty($this->calls['uploadAborted'] ?? [], 'Expected a direct upload to be aborted, but none was.');
+    }
+
+    public function assertUploadsPruned(): void
+    {
+        Assert::assertNotEmpty($this->calls['uploadsPruned'] ?? [], 'Expected direct uploads to be pruned, but they were not.');
+    }
+
+    public function assertUploadsNotPruned(): void
+    {
+        $this->assertNone('uploadsPruned', 'Expected direct uploads not to be pruned');
+    }
 
     public function store(PendingFileAddState $state): Media
     {

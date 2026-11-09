@@ -32,7 +32,7 @@ it('documents its root, is fakeable, and reaches every host-facing action', func
         ->toDocumentItsRoot()
         ->toBeFakeable()
         ->toReachEveryAction(__DIR__.'/../../src/Actions')
-        ->toRedactSensitiveArguments(methods: 1);
+        ->toRedactSensitiveArguments(methods: 5);
 });
 
 // --- for($model): owner-scoped adds ---

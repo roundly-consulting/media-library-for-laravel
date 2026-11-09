@@ -8,23 +8,31 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
+use RoundlyConsulting\MediaLibrary\Actions\AbortDirectUploadAction;
 use RoundlyConsulting\MediaLibrary\Actions\AddMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\AdoptDirectUploadAction;
 use RoundlyConsulting\MediaLibrary\Actions\AttachMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\BindDraftMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\CompleteMultipartUploadAction;
 use RoundlyConsulting\MediaLibrary\Actions\CopyMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\DeleteMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\IssueDirectUploadAction;
 use RoundlyConsulting\MediaLibrary\Actions\MeasureStorageUsageAction;
 use RoundlyConsulting\MediaLibrary\Actions\MoveMediaAction;
 use RoundlyConsulting\MediaLibrary\Actions\MoveMediaVariantsAction;
+use RoundlyConsulting\MediaLibrary\Actions\PruneDirectUploadsAction;
 use RoundlyConsulting\MediaLibrary\Actions\PruneDraftsAction;
 use RoundlyConsulting\MediaLibrary\Actions\RegenerateVariantsAction;
 use RoundlyConsulting\MediaLibrary\Actions\ReplaceMediaAction;
+use RoundlyConsulting\MediaLibrary\Actions\SignUploadPartsAction;
 use RoundlyConsulting\MediaLibrary\Buckets\BucketValidationRules;
 use RoundlyConsulting\MediaLibrary\Buckets\FileAdderFactory;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAddState;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\DirectUpload;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\StorageUsage;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\UploadPart;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
@@ -32,6 +40,8 @@ use RoundlyConsulting\MediaLibrary\Handles\RemoteUrls;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
+use RoundlyConsulting\MediaLibrary\Uploads\DirectUploadState;
+use RoundlyConsulting\MediaLibrary\Uploads\PendingDirectUpload;
 use SensitiveParameter;
 
 /**
@@ -44,6 +54,8 @@ use SensitiveParameter;
  *   on the media they are handed; `variants($media)` groups the variant operations.
  * - `remote()` fetches and vets user-supplied URLs with the guard `addFromUrl()` uses.
  * - `usage()` measures the bytes media store, counting a shared original once.
+ * - `upload()` signs a direct upload to storage; `adoptUpload()` (or `completeUpload()` for a
+ *   multipart one) turns it into media without the bytes passing through the application.
  *
  * Every mutation — from the facade, a handle, the `InteractsWithMedia` trait or a `Media` model
  * method — funnels through one of the flat verbs here (adds through `store()`), each of which
@@ -99,6 +111,80 @@ class MediaLibraryManager
     public function addFromStream($stream): PendingFileAdd
     {
         return $this->pending($this->files->fromStream($stream));
+    }
+
+    /**
+     * Start a direct upload of a global media: the browser sends the file straight to storage on
+     * a signed URL, and `adoptUpload()` turns it into media. `$size` is the size the browser
+     * reports, checked against the bucket's cap before anything is signed.
+     */
+    public function upload(string $fileName, int $size): PendingDirectUpload
+    {
+        return new PendingDirectUpload($this, null, $fileName, $size);
+    }
+
+    /**
+     * Sign a pending direct upload and record its ticket.
+     *
+     * @internal called by {@see PendingDirectUpload::toMediaBucket()} / `toBucket()`
+     */
+    public function issueUpload(DirectUploadState $state): DirectUpload
+    {
+        return $this->container->make(IssueDirectUploadAction::class)->execute($state);
+    }
+
+    /**
+     * Turn a direct upload into media — inspected and moved inside storage, under the bucket's
+     * current rules. Adopting an adopted ticket again returns the same media. A ticket issued
+     * `forActor()` needs that actor.
+     */
+    public function adoptUpload(#[SensitiveParameter] string $token, ?Model $actor = null): Media
+    {
+        return $this->container->make(AdoptDirectUploadAction::class)->execute($token, $actor);
+    }
+
+    /**
+     * Sign parts of a multipart direct upload (in batches; parts uploaded so far are checked
+     * against the cap first).
+     *
+     * @param  list<int>  $parts
+     * @return list<UploadPart>
+     */
+    public function signUploadParts(#[SensitiveParameter] string $token, array $parts): array
+    {
+        return $this->container->make(SignUploadPartsAction::class)->execute($token, $parts);
+    }
+
+    /**
+     * Complete a multipart direct upload with the ETags the browser received, then adopt it.
+     *
+     * @param  array<int, string>  $parts  part number => ETag
+     */
+    public function completeUpload(#[SensitiveParameter] string $token, array $parts, ?Model $actor = null): Media
+    {
+        return $this->container->make(CompleteMultipartUploadAction::class)->execute($token, $parts, $actor);
+    }
+
+    /** Cancel a pending direct upload and remove what it uploaded. */
+    public function abortUpload(#[SensitiveParameter] string $token): void
+    {
+        $this->container->make(AbortDirectUploadAction::class)->execute($token);
+    }
+
+    /** Expire unadopted direct uploads past their grace and remove leftovers. Returns how many. */
+    public function pruneUploads(): int
+    {
+        return $this->container->make(PruneDirectUploadsAction::class)->execute();
+    }
+
+    /**
+     * Adopt a file already in storage as a global media — moved onto the media's path inside
+     * storage, never copied through the application. Trusted input only: the path must be under
+     * the staging prefix or an adoptable prefix.
+     */
+    public function adoptFromDisk(string $path, ?string $disk = null): PendingFileAdd
+    {
+        return $this->pending($this->files->adoptFromDisk($path, $disk));
     }
 
     /** The media of one owning model: add, bind drafts, attach, read, clear and delete. */

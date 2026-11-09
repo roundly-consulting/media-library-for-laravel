@@ -84,19 +84,29 @@ final class ResponseHeaders
         $type = $options->contentType ?? self::mimeType($media, $variant);
         $name = FileNames::sanitize($options->fileName ?? self::fileName($media, $variant));
 
-        $presign = [
-            'ResponseContentDisposition' => HeaderUtils::makeDisposition(
-                self::disposition($options->disposition, $type)->value,
-                $name,
-                self::asciiFallback($name),
-            ),
-        ];
+        $presign = ['ResponseContentDisposition' => self::contentDisposition(self::disposition($options->disposition, $type), $name)];
 
         if ($type !== null) {
             $presign['ResponseContentType'] = $type;
         }
 
         return $presign;
+    }
+
+    /**
+     * The `Content-Disposition` a stored object carries once adopted from a direct upload: the
+     * rule for its own type, under its own name.
+     */
+    public static function storedDisposition(Media $media): string
+    {
+        $type = self::mimeType($media, '');
+
+        return self::contentDisposition(self::disposition(null, $type), FileNames::sanitize(self::fileName($media, '')));
+    }
+
+    private static function contentDisposition(ContentDisposition $disposition, string $name): string
+    {
+        return HeaderUtils::makeDisposition($disposition->value, $name, self::asciiFallback($name));
     }
 
     /** The plain-ASCII `filename=` beside the UTF-8 `filename*=` (the way Laravel's download names it). */

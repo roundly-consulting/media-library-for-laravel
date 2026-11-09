@@ -21,6 +21,7 @@ use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
+use RoundlyConsulting\MediaLibrary\Uploads\PendingDirectUpload;
 use SensitiveParameter;
 
 /**
@@ -41,6 +42,18 @@ final readonly class ModelMedia
     public function add(string|UploadedFile $file): PendingFileAdd
     {
         return $this->pending($this->files->fromFile($file));
+    }
+
+    /** Start a direct upload into this model's bucket — see `MediaLibrary::upload()`. */
+    public function upload(string $fileName, int $size): PendingDirectUpload
+    {
+        return new PendingDirectUpload($this->manager, $this->model, $fileName, $size);
+    }
+
+    /** Adopt a file already in storage into this model's bucket — see `MediaLibrary::adoptFromDisk()`. */
+    public function adoptFromDisk(string $path, ?string $disk = null): PendingFileAdd
+    {
+        return $this->pending($this->files->adoptFromDisk($path, $disk));
     }
 
     /** Start an add from the current request's uploaded file under `$key`. */

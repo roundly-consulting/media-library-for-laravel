@@ -10,6 +10,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Facade;
 use RoundlyConsulting\MediaLibrary\Buckets\PendingFileAdd;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\StorageUsage;
+use RoundlyConsulting\MediaLibrary\DataTransferObjects\UploadPart;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
 use RoundlyConsulting\MediaLibrary\Handles\RemoteUrls;
@@ -17,6 +18,7 @@ use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
 use RoundlyConsulting\MediaLibrary\Models\Media;
 use RoundlyConsulting\MediaLibrary\Testing\DnsFake;
 use RoundlyConsulting\MediaLibrary\Testing\MediaLibraryFake;
+use RoundlyConsulting\MediaLibrary\Uploads\PendingDirectUpload;
 use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
 
 /**
@@ -45,6 +47,13 @@ use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
  * @method static Media|null find(string $uuid)
  * @method static StorageUsage usage(Builder<Media>|null $query = null)
  * @method static int clearBucket(string $bucket = 'default')
+ * @method static PendingDirectUpload upload(string $fileName, int $size)
+ * @method static Media adoptUpload(string $token, ?Model $actor = null)
+ * @method static list<UploadPart> signUploadParts(string $token, list<int> $parts)
+ * @method static Media completeUpload(string $token, array<int, string> $parts, ?Model $actor = null)
+ * @method static void abortUpload(string $token)
+ * @method static int pruneUploads()
+ * @method static PendingFileAdd adoptFromDisk(string $path, ?string $disk = null)
  *
  * @see MediaLibraryManager
  */

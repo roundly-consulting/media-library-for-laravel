@@ -105,6 +105,25 @@ final class ExifOrientation
         return self::swapsDimensions(self::fromFile($path)) ? [$height, $width] : [$width, $height];
     }
 
+    /**
+     * {@see self::displayDimensions()} for an image's leading bytes (a file in storage, read
+     * without downloading it whole). Null when they hold no readable image size.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    public static function displayDimensionsFromBytes(string $bytes): ?array
+    {
+        $size = $bytes === '' ? false : @getimagesizefromstring($bytes);
+
+        if (! is_array($size) || $size['mime'] === 'image/svg+xml' || $size[0] < 1 || $size[1] < 1) {
+            return null;
+        }
+
+        [$width, $height] = [$size[0], $size[1]];
+
+        return self::swapsDimensions(self::fromBytes($bytes)) ? [$height, $width] : [$width, $height];
+    }
+
     /** Walk IFD0 of the TIFF structure inside the APP1 payload for the orientation entry. */
     private static function fromTiff(string $tiff): int
     {
