@@ -20,6 +20,7 @@ use RoundlyConsulting\MediaLibrary\Enums\DirectUploadMethod;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadActorMismatch;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadNotFound;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadsNotSupported;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadTargetMismatch;
 use RoundlyConsulting\MediaLibrary\Exceptions\DiskDoesNotExist;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DraftMediaNotFound;
@@ -33,6 +34,7 @@ use RoundlyConsulting\MediaLibrary\Support\FileNames;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
 use RoundlyConsulting\MediaLibrary\Support\MediaModel;
 use RoundlyConsulting\MediaLibrary\Uploads\DirectUploadState;
+use RoundlyConsulting\MediaLibrary\Uploads\UploadTickets;
 use SensitiveParameter;
 
 /**
@@ -139,11 +141,19 @@ final class MediaLibraryFake extends MediaLibraryManager
     /**
      * Adopts a ticket this fake issued: returns an unsaved media carrying what the real adoption
      * would store (the reserved uuid, owner, bucket, disk, visibility). A token it did not issue
-     * throws {@see DirectUploadNotFound}; adopting again returns the same media.
+     * throws {@see DirectUploadNotFound}; adopting again returns the same media. An
+     * `expectedOwner` / `expectedBucket` the ticket was not issued for throws
+     * {@see DirectUploadTargetMismatch} and leaves the ticket adoptable.
      */
-    public function adoptUpload(#[SensitiveParameter] string $token, ?Model $actor = null): Media
-    {
+    public function adoptUpload(
+        #[SensitiveParameter] string $token,
+        ?Model $actor = null,
+        ?Model $expectedOwner = null,
+        ?string $expectedBucket = null,
+    ): Media {
         if (isset($this->adopted[$token])) {
+            $this->ensureTarget($this->tickets[$token], $expectedOwner, $expectedBucket);
+
             return $this->adopted[$token];
         }
 
@@ -152,6 +162,8 @@ final class MediaLibraryFake extends MediaLibraryManager
         if ($state->actor !== null && ($actor === null || ! $actor->is($state->actor))) {
             throw DirectUploadActorMismatch::make();
         }
+
+        $this->ensureTarget($state, $expectedOwner, $expectedBucket);
 
         $bucket = $this->guard()->bucketFor($state->owner, $state->bucket);
         $disk = $this->disks()->resolveOriginalDisk($state->diskOverride, $bucket);
@@ -200,9 +212,32 @@ final class MediaLibraryFake extends MediaLibraryManager
     /**
      * @param  array<int, string>  $parts
      */
-    public function completeUpload(#[SensitiveParameter] string $token, array $parts, ?Model $actor = null): Media
+    public function completeUpload(
+        #[SensitiveParameter] string $token,
+        array $parts,
+        ?Model $actor = null,
+        ?Model $expectedOwner = null,
+        ?string $expectedBucket = null,
+    ): Media {
+        return $this->adoptUpload($token, $actor, $expectedOwner, $expectedBucket);
+    }
+
+    /** The real ticket check ({@see UploadTickets::ensureTarget()}) against an issued state. */
+    private function ensureTarget(DirectUploadState $state, ?Model $expectedOwner, ?string $expectedBucket): void
     {
-        return $this->adoptUpload($token, $actor);
+        $owner = ! $state->draft && $state->owner instanceof Model ? $state->owner : null;
+
+        if ($expectedOwner !== null
+            && ($owner === null
+                || $expectedOwner->getKey() === null
+                || $expectedOwner->getMorphClass() !== $owner->getMorphClass()
+                || (string) $expectedOwner->getKey() !== (string) $owner->getKey())) {
+            throw DirectUploadTargetMismatch::owner();
+        }
+
+        if ($expectedBucket !== null && $expectedBucket !== $state->bucket) {
+            throw DirectUploadTargetMismatch::bucket();
+        }
     }
 
     public function abortUpload(#[SensitiveParameter] string $token): void

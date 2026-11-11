@@ -34,10 +34,17 @@ final class CompleteMultipartUploadAction
 
     /**
      * @param  array<int, string>  $parts  part number => ETag the browser received
+     * @param  Model|null  $expectedOwner  refuse a ticket issued for another owner (or for none)
+     * @param  string|null  $expectedBucket  refuse a ticket issued for another bucket
      */
-    public function execute(#[SensitiveParameter] string $token, array $parts, ?Model $actor = null): Media
-    {
-        return $this->adopt->execute($token, $actor, function (MediaUpload $upload) use ($parts): void {
+    public function execute(
+        #[SensitiveParameter] string $token,
+        array $parts,
+        ?Model $actor = null,
+        ?Model $expectedOwner = null,
+        ?string $expectedBucket = null,
+    ): Media {
+        return $this->adopt->execute($token, $actor, expectedOwner: $expectedOwner, expectedBucket: $expectedBucket, beforeInspect: function (MediaUpload $upload) use ($parts): void {
             if ($upload->option('completed', false)) {
                 return;
             }

@@ -6,6 +6,7 @@ use PHPUnit\Framework\ExpectationFailedException;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadActorMismatch;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadNotFound;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadsNotSupported;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadTargetMismatch;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
@@ -106,4 +107,26 @@ it('signs fake parts, completes, aborts and prunes', function (): void {
 it('passes uploads-not-pruned while nothing was pruned', function (): void {
     $this->fake->assertUploadsNotPruned();
     $this->fake->assertNoUploadIssued();
+});
+
+it('honours an expected owner and bucket like the real manager, without spending the ticket', function (): void {
+    $owner = fakeUploader();
+    $upload = MediaLibrary::for($owner)->upload('a.png', 69)->toMediaBucket('gallery');
+    $global = MediaLibrary::upload('b.png', 69)->toBucket('library');
+
+    expect(fn () => MediaLibrary::adoptUpload($upload->token, expectedOwner: fakeUploader('Mallory')))->toThrow(DirectUploadTargetMismatch::class, 'another owner')
+        ->and(fn () => MediaLibrary::adoptUpload($upload->token, expectedBucket: 'avatar'))->toThrow(DirectUploadTargetMismatch::class, 'another bucket')
+        ->and(fn () => MediaLibrary::adoptUpload($global->token, expectedOwner: $owner))->toThrow(DirectUploadTargetMismatch::class)
+        ->and(fn () => MediaLibrary::completeUpload($upload->token, [], expectedBucket: 'avatar'))->toThrow(DirectUploadTargetMismatch::class);
+
+    $this->fake->assertNothingAdopted();
+
+    $media = MediaLibrary::adoptUpload($upload->token, expectedOwner: $owner, expectedBucket: 'gallery');
+
+    expect($media->uuid)->toBe($upload->mediaUuid)
+        ->and(fn () => MediaLibrary::adoptUpload($upload->token, expectedOwner: fakeUploader('Eve')))->toThrow(DirectUploadTargetMismatch::class)
+        ->and(MediaLibrary::adoptUpload($upload->token))->toBe($media)
+        ->and(MediaLibrary::adoptUpload($global->token)->bucket_name)->toBe('library');
+
+    $this->fake->assertUploadAdopted('gallery', $owner);
 });

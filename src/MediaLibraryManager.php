@@ -33,6 +33,7 @@ use RoundlyConsulting\MediaLibrary\DataTransferObjects\AddedFile;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\DirectUpload;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\StorageUsage;
 use RoundlyConsulting\MediaLibrary\DataTransferObjects\UploadPart;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadTargetMismatch;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\Handles\MediaVariants;
 use RoundlyConsulting\MediaLibrary\Handles\ModelMedia;
@@ -137,10 +138,19 @@ class MediaLibraryManager
      * Turn a direct upload into media — inspected and moved inside storage, under the bucket's
      * current rules. Adopting an adopted ticket again returns the same media. A ticket issued
      * `forActor()` needs that actor.
+     *
+     * Name the owner and bucket the route serves (`expectedOwner: $post, expectedBucket: 'cover'`)
+     * and a token issued for another owner or bucket throws {@see DirectUploadTargetMismatch}
+     * without being spent. Left out, any owner's ticket is adopted, as before.
      */
-    public function adoptUpload(#[SensitiveParameter] string $token, ?Model $actor = null): Media
-    {
-        return $this->container->make(AdoptDirectUploadAction::class)->execute($token, $actor);
+    public function adoptUpload(
+        #[SensitiveParameter] string $token,
+        ?Model $actor = null,
+        ?Model $expectedOwner = null,
+        ?string $expectedBucket = null,
+    ): Media {
+        return $this->container->make(AdoptDirectUploadAction::class)
+            ->execute($token, $actor, expectedOwner: $expectedOwner, expectedBucket: $expectedBucket);
     }
 
     /**
@@ -157,12 +167,19 @@ class MediaLibraryManager
 
     /**
      * Complete a multipart direct upload with the ETags the browser received, then adopt it.
+     * `expectedOwner` / `expectedBucket` work as for `adoptUpload()`, checked before completing.
      *
      * @param  array<int, string>  $parts  part number => ETag
      */
-    public function completeUpload(#[SensitiveParameter] string $token, array $parts, ?Model $actor = null): Media
-    {
-        return $this->container->make(CompleteMultipartUploadAction::class)->execute($token, $parts, $actor);
+    public function completeUpload(
+        #[SensitiveParameter] string $token,
+        array $parts,
+        ?Model $actor = null,
+        ?Model $expectedOwner = null,
+        ?string $expectedBucket = null,
+    ): Media {
+        return $this->container->make(CompleteMultipartUploadAction::class)
+            ->execute($token, $parts, $actor, $expectedOwner, $expectedBucket);
     }
 
     /** Cancel a pending direct upload and remove what it uploaded. */

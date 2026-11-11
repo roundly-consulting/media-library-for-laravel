@@ -15,6 +15,7 @@ use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadActorMismatch;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadExpired;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadNotFound;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadsNotSupported;
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadTargetMismatch;
 use RoundlyConsulting\MediaLibrary\Filesystem\S3UploadSigner;
 use RoundlyConsulting\MediaLibrary\Models\MediaUpload;
 use RoundlyConsulting\MediaLibrary\Support\MediaConfig;
@@ -64,6 +65,29 @@ final class UploadTickets
             || $actor->getMorphClass() !== $upload->actor_type
             || (string) $actor->getKey() !== $upload->actor_id) {
             throw DirectUploadActorMismatch::make();
+        }
+    }
+
+    /**
+     * Check the ticket against the owner and bucket the adopting route expects; a null expectation
+     * is not checked. Reads the ticket only, so a refused ticket stays as it was. A global or
+     * draft ticket has no owner, so it never matches an expected owner.
+     *
+     * @throws DirectUploadTargetMismatch
+     */
+    public function ensureTarget(MediaUpload $upload, ?Model $expectedOwner, ?string $expectedBucket): void
+    {
+        if ($expectedOwner !== null
+            && ($upload->model_type === null
+                || $upload->model_id === null
+                || $expectedOwner->getKey() === null
+                || $expectedOwner->getMorphClass() !== $upload->model_type
+                || (string) $expectedOwner->getKey() !== $upload->model_id)) {
+            throw DirectUploadTargetMismatch::owner();
+        }
+
+        if ($expectedBucket !== null && $expectedBucket !== $upload->bucket_name) {
+            throw DirectUploadTargetMismatch::bucket();
         }
     }
 

@@ -27,6 +27,8 @@ use Throwable;
 /**
  * Turns a direct upload into media: `MediaLibrary::adoptUpload($token)`.
  *
+ * 0. With `$expectedOwner` / `$expectedBucket`, a ticket issued for another owner or bucket is
+ *    refused before anything else — never claimed, so the right route can still adopt it.
  * 1. The ticket is claimed with one conditional update, so two requests (or an adoption and a
  *    prune) can never both take it. A second adoption of an adopted ticket returns its media.
  * 2. The stored object is inspected where it lies: size first (over the ticket's cap: rejected),
@@ -52,11 +54,19 @@ final class AdoptDirectUploadAction
 
     /**
      * @param  (Closure(MediaUpload): void)|null  $beforeInspect  runs under the claim (completes a multipart upload)
+     * @param  Model|null  $expectedOwner  refuse a ticket issued for another owner (or for none)
+     * @param  string|null  $expectedBucket  refuse a ticket issued for another bucket
      */
-    public function execute(#[SensitiveParameter] string $token, ?Model $actor = null, ?Closure $beforeInspect = null): Media
-    {
+    public function execute(
+        #[SensitiveParameter] string $token,
+        ?Model $actor = null,
+        ?Closure $beforeInspect = null,
+        ?Model $expectedOwner = null,
+        ?string $expectedBucket = null,
+    ): Media {
         $upload = $this->tickets->find($token);
         $this->tickets->ensureActor($upload, $actor);
+        $this->tickets->ensureTarget($upload, $expectedOwner, $expectedBucket);
 
         if ($upload->status === DirectUploadStatus::Adopted) {
             return $this->adopted($upload);
