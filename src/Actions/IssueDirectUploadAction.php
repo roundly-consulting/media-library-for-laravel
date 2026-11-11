@@ -16,6 +16,7 @@ use RoundlyConsulting\MediaLibrary\Enums\DirectUploadMethod;
 use RoundlyConsulting\MediaLibrary\Enums\DirectUploadStatus;
 use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadsNotSupported;
 use RoundlyConsulting\MediaLibrary\Exceptions\FileUnacceptableForBucket;
+use RoundlyConsulting\MediaLibrary\Exceptions\TooManyPendingDirectUploads;
 use RoundlyConsulting\MediaLibrary\Filesystem\S3UploadSigner;
 use RoundlyConsulting\MediaLibrary\Models\MediaUpload;
 use RoundlyConsulting\MediaLibrary\Support\DiskResolver;
@@ -243,7 +244,7 @@ final class IssueDirectUploadAction
             ->count();
 
         if ($pending >= $max) {
-            throw DirectUploadsNotSupported::tooManyPending($max);
+            throw TooManyPendingDirectUploads::make($max, $holder);
         }
     }
 }

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\MediaLibrary\Exceptions\DirectUploadsNotSupported;
 use RoundlyConsulting\MediaLibrary\Exceptions\MediaLibraryException;
 use RoundlyConsulting\MediaLibrary\Facades\MediaLibrary;
 use RoundlyConsulting\MediaLibrary\MediaLibraryManager;
@@ -36,6 +37,8 @@ ArchPresets::finalByDefault('RoundlyConsulting\MediaLibrary', [
     Media::class,
     // The base every media error extends, so a host can catch them uniformly.
     MediaLibraryException::class,
+    // Extended by `TooManyPendingDirectUploads`, so a catch of the 2.1 type keeps catching it.
+    DirectUploadsNotSupported::class,
     // The facade root: `MediaLibraryFake` must subtype it, or an injected manager TypeErrors
     // under `MediaLibrary::fake()`.
     MediaLibraryManager::class,
