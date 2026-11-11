@@ -4,6 +4,31 @@ All notable changes to `media-library-for-laravel` are documented in this file. 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- `MediaLibrary::adoptUpload()` and `completeUpload()` take optional `expectedOwner:` and
+  `expectedBucket:` arguments. A token issued for another owner (compared by morph type and key),
+  for no owner (a global upload or a draft) or for another bucket throws the new
+  `DirectUploadTargetMismatch` before the ticket is claimed, so it stays pending and the right route
+  can still adopt it. An adopted ticket's media is not handed to another owner either. The message
+  names neither the ticket's owner nor its bucket; `$exception->mismatched` says which check failed.
+  Without the arguments nothing changes. `MediaLibrary::fake()` honours them too.
+- The pending-ticket cap (`media.direct_uploads.max_pending_per_owner`) throws the new
+  `TooManyPendingDirectUploads`, with the cap in `$limit` and the owner (or, for a global upload or
+  a draft, the actor) it counted against in `$holder`. It extends `DirectUploadsNotSupported`, the
+  type thrown before, so existing catches keep working; the message is unchanged.
+
+### Changed
+
+- `DirectUploadsNotSupported` is no longer `final`, so `TooManyPendingDirectUploads` can extend it.
+
+### Planned for the next major
+
+- `adoptUpload()` and `completeUpload()` will require the expected owner (or an explicit opt-out
+  for global media and drafts), so a token can only be adopted by the route it was issued for.
+
 ## 2.1.0 - 2026-11-09
 
 ### Added
